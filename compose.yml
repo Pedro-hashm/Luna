@@ -1,0 +1,144 @@
+name: luna-v2
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: luna-v2-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: luna
+      POSTGRES_USER: luna
+      POSTGRES_PASSWORD: luna
+    ports:
+      - "127.0.0.1:${LUNA_V2_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luna -d luna"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: luna-v2-ollama
+    gpus: all
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LUNA_V2_OLLAMA_PORT:-11435}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: luna-v2-ollama-init
+    environment:
+      OLLAMA_HOST: ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b-instruct}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        ensure_model() {
+          if ollama list | awk 'NR > 1 { print $$1 }' | grep -Fxq "$$1"; then
+            echo "Model $$1 is already available."
+            return
+          fi
+
+          ollama pull "$$1"
+        }
+
+        ensure_model "$$OLLAMA_CHAT_MODEL"
+        ensure_model "$$OLLAMA_EMBEDDING_MODEL"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: "no"
+
+  migrate:
+    image: luna-v2-migrate:local
+    container_name: luna-v2-migrate
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://luna:luna@postgres:5432/luna?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: luna-v2-api:local
+    container_name: luna-v2-api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      DATABASE_URL: postgresql://luna:luna@postgres:5432/luna?schema=public
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+      LLM_COMBO: ${LLM_COMBO:-paid-general}
+      ORCHESTRATOR_COMBO: ${ORCHESTRATOR_COMBO:-local-general}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-http://host.docker.internal:20128/v1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ollama-init:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${LUNA_V2_API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8000/').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    image: luna-v2-web:local
+    container_name: luna-v2-web
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_URL: http://api:8000
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${LUNA_V2_WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  # Reuses the volume created by the previous apps/docker-compose.yml setup,
+  # preserving the existing Luna V2 conversations during the move to the root.
+  postgres_data:
+    external: true
+    name: ${LUNA_V2_POSTGRES_VOLUME:-apps_luna_postgres_data}
+  ollama_data:
+    # Shares the model store from the previous Luna Compose project so Ollama
+    # can reuse already-downloaded blobs and manifests instead of pulling them again.
+    external: true
+    name: ${LUNA_V2_OLLAMA_VOLUME:-luna_luna-ollama-data}

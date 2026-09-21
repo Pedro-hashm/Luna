@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MessageRole {
+    system
+    user
+    assistant
+    tool
+}
+
+enum ConversationChunkStatus {
+    open
+    closed
+}
+
+enum ObservabilityTraceKind {
+    llm
+    tool
+}
+
+enum ObservabilityTraceStatus {
+    success
+    error
+    timeout
+}
+
+model ApplicationSettings {
+  id                              Int      @id @default(1)
+  llmCombo                        String   @default("local-general") @map("llm_combo")
+  orchestratorCombo               String   @default("local-general") @map("orchestrator_combo")
+  appTimezone                     String   @default("America/Sao_Paulo") @map("app_timezone")
+  llmTemperature                  Float?   @map("llm_temperature")
+  llmMaxTokens                    Int?     @map("llm_max_tokens")
+  immediateContextMaxTokens       Int      @default(32000) @map("immediate_context_max_tokens")
+  orchestratorMaxIterations       Int      @default(4) @map("orchestrator_max_iterations")
+  orchestratorMaxToolCalls        Int      @default(3) @map("orchestrator_max_tool_calls")
+  orchestratorToolResultMaxTokens Int      @default(1000) @map("orchestrator_tool_result_max_tokens")
+  retrievalDefaultTopK            Int      @default(8) @map("retrieval_default_top_k")
+  retrievalMaxTopK                Int      @default(50) @map("retrieval_max_top_k")
+  retrievalDefaultMaxContextTokens Int     @default(8000) @map("retrieval_default_max_context_tokens")
+  retrievalMaxContextTokens       Int      @default(20000) @map("retrieval_max_context_tokens")
+  retrievalIncludeMessages        Boolean  @default(true) @map("retrieval_include_messages")
+  createdAt                       DateTime @default(now()) @map("created_at")
+  updatedAt                       DateTime @updatedAt @map("updated_at")
+
+  @@map("application_settings")
+}
+
+model Conversation {
+  id               String                       @id @default(uuid()) @db.Uuid
+  title            String?
+  summary          String?                      @db.Text
+  summaryEmbedding Unsupported("vector(1024)")? @map("summary_embedding")
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  updatedAt        DateTime                     @updatedAt @map("updated_at")
+  messages         Message[]
+  chunks           ConversationChunk[]
+  observabilityTraces ObservabilityTrace[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id                 String              @id @default(uuid()) @db.Uuid
+  conversationId     String              @map("conversation_id") @db.Uuid
+  role               MessageRole
+  content            String              @db.Text
+  model              String?
+  createdAt          DateTime            @default(now()) @map("created_at")
+  conversation       Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  chunksStartingHere ConversationChunk[] @relation("ChunkStartMessage")
+  chunksEndingHere   ConversationChunk[] @relation("ChunkEndMessage")
+  observabilityTraces ObservabilityTrace[] @relation("MessageResponseTrace")
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model ConversationChunk {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  conversationId       String                       @map("conversation_id") @db.Uuid
+  content              String                       @db.Text
+  embedding            Unsupported("vector(1024)")?
+  startMessageId       String                       @map("start_message_id") @db.Uuid
+  endMessageId         String                       @map("end_message_id") @db.Uuid
+  status               ConversationChunkStatus     @default(open)
+  tokenCount           Int                          @default(0) @map("token_count")
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  conversation         Conversation                 @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  startMessage         Message                      @relation("ChunkStartMessage", fields: [startMessageId], references: [id], onDelete: Cascade)
+  endMessage           Message                      @relation("ChunkEndMessage", fields: [endMessageId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, status, createdAt])
+  @@index([startMessageId])
+  @@index([endMessageId])
+  @@map("conversation_chunks")
+}
+
+model ConversationChunkSettings {
+  id                       Int      @id @default(1)
+  maxTokens                Int      @default(4000) @map("max_tokens")
+  overlapTokens            Int      @default(800) @map("overlap_tokens")
+  embeddingRefreshTokens   Int      @default(1000) @map("embedding_refresh_tokens")
+  embeddingModel           String   @default("qwen3-embedding:0.6b") @map("embedding_model")
+  embeddingDimensions      Int      @default(1024) @map("embedding_dimensions")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("conversation_chunk_settings")
+}
+
+model ObservabilityTrace {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  requestId             String?                   @map("request_id")
+  conversationId        String?                   @map("conversation_id") @db.Uuid
+  responseMessageId     String?                   @unique @map("response_message_id") @db.Uuid
+  kind                  ObservabilityTraceKind
+  status                ObservabilityTraceStatus
+  toolName              String?                   @map("tool_name")
+  combo                 String?
+  model                 String?
+  inputTokens           Int                       @default(0) @map("input_tokens")
+  outputTokens          Int                       @default(0) @map("output_tokens")
+  totalTokens           Int                       @default(0) @map("total_tokens")
+  estimatedInputTokens  Int                       @default(0) @map("estimated_input_tokens")
+  estimatedOutputTokens Int                       @default(0) @map("estimated_output_tokens")
+  latencyMs             Int                       @default(0) @map("latency_ms")
+  stageDurations        Json?                     @map("stage_durations")
+  contextSnapshot       Json?                     @map("context_snapshot")
+  errorMessage          String?                   @map("error_message") @db.Text
+  startedAt             DateTime                  @map("started_at")
+  completedAt           DateTime?                 @map("completed_at")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  conversation          Conversation?            @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  responseMessage       Message?                  @relation("MessageResponseTrace", fields: [responseMessageId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([conversationId, createdAt])
+  @@index([kind, status, createdAt])
+  @@map("observability_traces")
+}
