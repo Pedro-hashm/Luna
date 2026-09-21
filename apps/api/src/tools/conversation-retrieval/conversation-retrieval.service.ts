@@ -1,8 +1,13 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConversationChunkStatus, Prisma } from '@prisma/client';
 import { ConversationEmbeddingService } from '../../conversation/conversation-embedding.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../../settings/settings.service';
+import {
+  ToolArgumentException,
+  ToolRuntimeContextException,
+} from '../types/tool-errors';
+import type { ToolExecutionContext } from '../types/tool.types';
 import type {
   ConversationRetrievalInput,
   ConversationRetrievalItem,
@@ -12,8 +17,10 @@ import type {
 
 type NormalizedInput = {
   query?: string;
-  currentConversationId?: string;
-  conversationId?: string;
+  scope: 'historical' | 'current';
+  runtimeConversationId?: string;
+  currentMessageId?: string;
+  currentMessageCreatedAt?: Date;
   dateFrom?: Date;
   dateTo?: Date;
   topK: number;
@@ -45,9 +52,9 @@ type ChunkCandidate = {
 };
 
 type CandidateMessages = {
-  all: ConversationRetrievalMessage[];
   range: ConversationRetrievalMessage[];
   tail: ConversationRetrievalMessage[];
+  indexedContent?: string;
 };
 
 @Injectable()
@@ -62,19 +69,20 @@ export class ConversationRetrievalService {
 
   async retrieve(
     input: ConversationRetrievalInput,
+    context: ToolExecutionContext,
   ): Promise<ConversationRetrievalResult> {
     const applicationSettings =
       await this.settingsService.getApplicationSettings();
-    const normalized = this.normalizeInput(input, applicationSettings);
+    const normalized = await this.normalizeInput(
+      input,
+      context,
+      applicationSettings,
+    );
 
-    if (
-      !normalized.query &&
-      !normalized.conversationId &&
-      !normalized.dateFrom &&
-      !normalized.dateTo
-    ) {
-      throw new BadRequestException(
-        'conversation_retrieval needs a query, conversationId, dateFrom, or dateTo',
+    if (!normalized.query && !normalized.dateFrom && !normalized.dateTo) {
+      throw new ToolArgumentException(
+        'query',
+        'conversation_retrieval needs a query, dateFrom, or dateTo',
       );
     }
 
@@ -99,8 +107,9 @@ export class ConversationRetrievalService {
     };
   }
 
-  private normalizeInput(
+  private async normalizeInput(
     input: ConversationRetrievalInput,
+    context: ToolExecutionContext,
     settings: {
       appTimezone: string;
       retrievalDefaultTopK: number;
@@ -109,30 +118,47 @@ export class ConversationRetrievalService {
       retrievalMaxContextTokens: number;
       retrievalIncludeMessages: boolean;
     },
-  ): NormalizedInput {
+  ): Promise<NormalizedInput> {
     const query = this.normalizeOptionalText(input.query);
-    let conversationId = this.normalizeOptionalText(input.conversationId);
-    const currentConversationId = this.normalizeOptionalText(
-      input.currentConversationId,
+    const runtimeConversationId = this.normalizeOptionalText(
+      context.conversationId,
     );
+    const currentMessageId = this.normalizeOptionalText(
+      context.currentMessageId,
+    );
+    let currentMessageCreatedAt: Date | undefined;
+    const scope = input.searchCurrentConversation ? 'current' : 'historical';
 
-    if (conversationId) {
-      this.assertUuid(conversationId, 'conversationId');
+    if (runtimeConversationId) {
+      this.assertRuntimeUuid(runtimeConversationId, 'conversationId');
     }
 
-    if (currentConversationId) {
-      this.assertUuid(currentConversationId, 'currentConversationId');
+    if (currentMessageId) {
+      this.assertRuntimeUuid(currentMessageId, 'currentMessageId');
     }
 
-    if (
-      conversationId &&
-      currentConversationId &&
-      conversationId.toLowerCase() === currentConversationId.toLowerCase()
-    ) {
-      this.logger.warn(
-        'Ignoring conversationId because it points to the current conversation',
-      );
-      conversationId = undefined;
+    if (scope === 'current') {
+      if (!runtimeConversationId || !currentMessageId) {
+        throw new ToolRuntimeContextException(
+          'Current-conversation retrieval requires conversationId and currentMessageId from the runtime.',
+        );
+      }
+
+      const currentMessage = await this.prisma.message.findUnique({
+        where: { id: currentMessageId },
+        select: { conversationId: true, createdAt: true },
+      });
+
+      if (
+        !currentMessage ||
+        currentMessage.conversationId !== runtimeConversationId
+      ) {
+        throw new ToolRuntimeContextException(
+          'currentMessageId does not belong to the runtime conversation.',
+        );
+      }
+
+      currentMessageCreatedAt = currentMessage.createdAt;
     }
 
     const dateFrom = this.parseDate(
@@ -149,10 +175,13 @@ export class ConversationRetrievalService {
     );
 
     if (dateFrom && dateTo && dateFrom > dateTo) {
-      throw new BadRequestException('dateFrom must be before dateTo');
+      throw new ToolArgumentException(
+        'dateFrom',
+        'dateFrom must be before dateTo',
+      );
     }
 
-    const topK = input.topK ?? settings.retrievalDefaultTopK;
+    const topK = settings.retrievalDefaultTopK;
     const maxContextTokens =
       input.maxContextTokens ?? settings.retrievalDefaultMaxContextTokens;
 
@@ -161,8 +190,8 @@ export class ConversationRetrievalService {
       topK < 1 ||
       topK > settings.retrievalMaxTopK
     ) {
-      throw new BadRequestException(
-        `topK must be an integer between 1 and ${settings.retrievalMaxTopK}`,
+      throw new ToolRuntimeContextException(
+        'Configured retrievalDefaultTopK is outside the allowed range.',
       );
     }
 
@@ -171,7 +200,8 @@ export class ConversationRetrievalService {
       maxContextTokens < 1 ||
       maxContextTokens > settings.retrievalMaxContextTokens
     ) {
-      throw new BadRequestException(
+      throw new ToolArgumentException(
+        'maxContextTokens',
         `maxContextTokens must be an integer between 1 and ${settings.retrievalMaxContextTokens}`,
       );
     }
@@ -180,13 +210,18 @@ export class ConversationRetrievalService {
       input.includeMessages !== undefined &&
       typeof input.includeMessages !== 'boolean'
     ) {
-      throw new BadRequestException('includeMessages must be a boolean');
+      throw new ToolArgumentException(
+        'includeMessages',
+        'includeMessages must be a boolean',
+      );
     }
 
     return {
       query,
-      currentConversationId,
-      conversationId,
+      scope,
+      runtimeConversationId,
+      currentMessageId,
+      currentMessageCreatedAt,
       dateFrom,
       dateTo,
       topK,
@@ -235,7 +270,7 @@ export class ConversationRetrievalService {
       id: row.id,
       conversationId: row.conversation_id,
       content: row.content,
-      status: row.status as ConversationChunkStatus,
+      status: row.status,
       tokenCount: Number(row.token_count),
       startMessageId: row.start_message_id,
       endMessageId: row.end_message_id,
@@ -260,16 +295,31 @@ export class ConversationRetrievalService {
     }
 
     const where: Prisma.ConversationChunkWhereInput = {
-      conversationId: input.conversationId,
+      conversationId:
+        input.scope === 'current'
+          ? input.runtimeConversationId
+          : input.runtimeConversationId
+            ? { not: input.runtimeConversationId }
+            : undefined,
       conversation:
         input.dateFrom || input.dateTo
           ? { messages: { some: dateFilter } }
           : undefined,
+      startMessage:
+        input.scope === 'current' &&
+        input.currentMessageId &&
+        input.currentMessageCreatedAt
+          ? {
+              OR: [
+                { createdAt: { lt: input.currentMessageCreatedAt } },
+                {
+                  createdAt: input.currentMessageCreatedAt,
+                  id: { lte: input.currentMessageId },
+                },
+              ],
+            }
+          : undefined,
     };
-
-    if (!input.conversationId && input.currentConversationId) {
-      where.conversationId = { not: input.currentConversationId };
-    }
 
     const chunks = await this.prisma.conversationChunk.findMany({
       where,
@@ -302,14 +352,35 @@ export class ConversationRetrievalService {
       filters.push(Prisma.sql`cc."embedding" IS NOT NULL`);
     }
 
-    if (input.conversationId) {
+    if (input.scope === 'current' && input.runtimeConversationId) {
       filters.push(
-        Prisma.sql`cc."conversation_id" = ${input.conversationId}::uuid`,
+        Prisma.sql`cc."conversation_id" = ${input.runtimeConversationId}::uuid`,
       );
-    } else if (input.currentConversationId) {
+    } else if (input.runtimeConversationId) {
       filters.push(
-        Prisma.sql`cc."conversation_id" <> ${input.currentConversationId}::uuid`,
+        Prisma.sql`cc."conversation_id" <> ${input.runtimeConversationId}::uuid`,
       );
+    }
+
+    if (
+      input.scope === 'current' &&
+      input.currentMessageId &&
+      input.currentMessageCreatedAt
+    ) {
+      filters.push(Prisma.sql`
+        EXISTS (
+          SELECT 1
+          FROM "messages" chunk_start_message
+          WHERE chunk_start_message."id" = cc."start_message_id"
+            AND (
+              chunk_start_message."created_at" < ${input.currentMessageCreatedAt}
+              OR (
+                chunk_start_message."created_at" = ${input.currentMessageCreatedAt}
+                AND chunk_start_message."id" <= ${input.currentMessageId}::uuid
+              )
+            )
+        )
+      `);
     }
 
     if (input.dateFrom || input.dateTo) {
@@ -334,7 +405,7 @@ export class ConversationRetrievalService {
     const expanded = await Promise.all(
       candidates.map(async (candidate) => ({
         candidate,
-        messages: await this.loadCandidateMessages(candidate),
+        messages: await this.loadCandidateMessages(candidate, input),
       })),
     );
     const results: ConversationRetrievalItem[] = [];
@@ -353,7 +424,7 @@ export class ConversationRetrievalService {
       );
 
       if (!rendered) {
-        break;
+        continue;
       }
 
       remainingTokens -= this.estimateTokens(
@@ -393,6 +464,7 @@ export class ConversationRetrievalService {
 
   private async loadCandidateMessages(
     candidate: ChunkCandidate,
+    input: NormalizedInput,
   ): Promise<CandidateMessages> {
     const all = await this.prisma.message.findMany({
       where: { conversationId: candidate.conversationId },
@@ -404,30 +476,46 @@ export class ConversationRetrievalService {
         createdAt: true,
       },
     });
-    const startIndex = all.findIndex(
+    const visible =
+      input.scope === 'current' &&
+      candidate.conversationId === input.runtimeConversationId
+        ? this.messagesUpToCurrentMessage(all, input.currentMessageId)
+        : all;
+    const startIndex = visible.findIndex(
       (message) => message.id === candidate.startMessageId,
     );
-    const endIndex = all.findIndex(
+    const endIndex = visible.findIndex(
       (message) => message.id === candidate.endMessageId,
     );
 
-    if (startIndex < 0 || endIndex < startIndex) {
-      return { all, range: [], tail: [] };
+    if (startIndex < 0) {
+      return {
+        range: [],
+        tail: [],
+        indexedContent: input.scope === 'current' ? '' : undefined,
+      };
     }
 
-    const indexedEnd = endIndex + 1;
-    const range = all.slice(
+    const indexedEnd = endIndex >= startIndex ? endIndex + 1 : visible.length;
+    const indexedMessages = visible.slice(startIndex, indexedEnd);
+    const isOpen = candidate.status === ConversationChunkStatus.open;
+    const range = visible.slice(
       startIndex,
-      candidate.status === ConversationChunkStatus.open
-        ? all.length
-        : indexedEnd,
+      isOpen || endIndex < startIndex ? visible.length : indexedEnd,
     );
     const tail =
-      candidate.status === ConversationChunkStatus.open
-        ? all.slice(indexedEnd)
-        : [];
+      isOpen && endIndex >= startIndex ? visible.slice(indexedEnd) : [];
 
-    return { all, range, tail };
+    return {
+      range,
+      tail,
+      indexedContent:
+        input.scope === 'current'
+          ? indexedMessages
+              .map((message) => this.formatMessage(message))
+              .join('\n')
+          : undefined,
+    };
   }
 
   private renderWithinBudget(
@@ -436,6 +524,10 @@ export class ConversationRetrievalService {
     budget: number,
   ): { content: string; tailContent?: string } | undefined {
     if (budget <= 0) {
+      return undefined;
+    }
+
+    if (messages.indexedContent !== undefined && messages.range.length === 0) {
       return undefined;
     }
 
@@ -453,7 +545,10 @@ export class ConversationRetrievalService {
     }
 
     const contentBudget = Math.max(1, budget - (tailContent ? tailTokens : 0));
-    const content = this.truncateToTokens(candidate.content, contentBudget);
+    const content = this.truncateToTokens(
+      messages.indexedContent ?? candidate.content,
+      contentBudget,
+    );
 
     return {
       content,
@@ -464,6 +559,21 @@ export class ConversationRetrievalService {
   private normalizeOptionalText(value: string | undefined): string | undefined {
     const normalized = value?.trim();
     return normalized || undefined;
+  }
+
+  private messagesUpToCurrentMessage(
+    messages: ConversationRetrievalMessage[],
+    currentMessageId: string | undefined,
+  ): ConversationRetrievalMessage[] {
+    if (!currentMessageId) {
+      return [];
+    }
+
+    const currentIndex = messages.findIndex(
+      (message) => message.id === currentMessageId,
+    );
+
+    return currentIndex < 0 ? [] : messages.slice(0, currentIndex + 1);
   }
 
   private parseDate(
@@ -492,7 +602,10 @@ export class ConversationRetrievalService {
     const parsed = new Date(value);
 
     if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException(`${field} must be a valid ISO date`);
+      throw new ToolArgumentException(
+        field,
+        `${field} must be a valid ISO date`,
+      );
     }
 
     return parsed;
@@ -526,7 +639,10 @@ export class ConversationRetrievalService {
     );
 
     if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException(`${field} must be a valid ISO date`);
+      throw new ToolArgumentException(
+        field,
+        `${field} must be a valid ISO date`,
+      );
     }
 
     return parsed;
@@ -565,13 +681,15 @@ export class ConversationRetrievalService {
     return renderedAsUtc - dateWithoutMilliseconds.getTime();
   }
 
-  private assertUuid(value: string, field: string): void {
+  private assertRuntimeUuid(value: string, field: string): void {
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
         value,
       )
     ) {
-      throw new BadRequestException(`${field} must be a valid UUID`);
+      throw new ToolRuntimeContextException(
+        `${field} must be a valid UUID when supplied by the runtime.`,
+      );
     }
   }
 

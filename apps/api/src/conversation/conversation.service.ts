@@ -201,6 +201,7 @@ export class ConversationService {
         requestId,
         input: normalizedContent,
         conversationId: conversation.id,
+        currentMessageId: userMessage.id,
         currentDateTime: currentDateTime.toISOString(),
         recentMessages,
       });

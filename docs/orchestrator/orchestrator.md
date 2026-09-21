@@ -68,7 +68,7 @@ Uma chamada idêntica de mesma tool e mesmos argumentos também é interrompida:
 
 Para `conversation_retrieval`, o código normaliza a execução do Orchestrator com `includeMessages: false` e limita `maxContextTokens` ao teto acima. A rota de teste forçada não recebe essa normalização, pois sua finalidade é inspecionar a saída completa da tool.
 
-Antes de executar a tool, a aplicação também remove `conversationId` inválido ou igual ao `conversationId` atual. O histórico não deve pesquisar a conversa corrente, mesmo que o modelo local invente um UUID ou tente reutilizar o ID que recebeu no estado da iteração. Um `conversationId` válido só é preservado quando representa outra conversa, normalmente obtida de um resultado anterior da própria tool.
+O schema exposto ao modelo não contém UUIDs ou outros identificadores técnicos. A API injeta `conversationId`, `currentMessageId` e o horário da interação como contexto de runtime. A busca histórica exclui automaticamente a conversa atual; o modelo usa somente `searchCurrentConversation: true` quando o usuário pedir explicitamente para procurar nela. Consulte [tool-runtime-context.md](tool-runtime-context.md) para o contrato reutilizável de ownership de parâmetros e retries.
 
 O default conservador de 1000 foi validado contra o combo local atual, que expõe 4096 tokens de contexto. Se um combo com janela maior for configurado no OmniRoute, esse limite pode ser aumentado pela interface.
 

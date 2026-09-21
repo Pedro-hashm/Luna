@@ -1,10 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
 import { ObservabilityService } from '../observability/observability.service';
 import { SettingsService } from '../settings/settings.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
+import { isRuntimeOwnedToolArgument } from '../tools/tool-argument-ownership';
+import { toToolExecutionModelView } from '../tools/tool-model-view';
 import { ToolsService } from '../tools/tools.service';
+import {
+  ToolArgumentException,
+  ToolRuntimeContextException,
+} from '../tools/types/tool-errors';
+import type { ToolExecutionError } from '../tools/types/tool.types';
 import type { ToolDefinition } from '../tools/tool-registry.types';
 import { ORCHESTRATOR_SYSTEM_PROMPT } from './orchestrator.prompt';
 import type {
@@ -126,7 +133,6 @@ export class OrchestratorService {
       const toolDecision = this.normalizeToolDecision(
         decision,
         settings.orchestratorToolResultMaxTokens,
-        context.conversationId,
       );
 
       if (toolExecutions.length >= settings.orchestratorMaxToolCalls) {
@@ -178,9 +184,21 @@ export class OrchestratorService {
           tool: toolDecision.tool,
           arguments: toolDecision.arguments,
           status: 'error',
-          error: `Tool ${toolDecision.tool} is not registered.`,
+          error: {
+            status: 'error',
+            errorType: 'TECHNICAL',
+            tool: toolDecision.tool,
+            message: `Tool ${toolDecision.tool} is not registered.`,
+            modelRetryable: false,
+          },
         });
-        continue;
+        return this.result(
+          context,
+          toolExecutions,
+          decisions,
+          iteration,
+          DEFAULT_FINAL_INSTRUCTIONS,
+        );
       }
 
       decisions.push({
@@ -189,7 +207,22 @@ export class OrchestratorService {
         tool: toolDecision.tool,
         status: 'accepted',
       });
-      await this.executeTool(context, iteration, toolDecision, toolExecutions);
+      const toolOutcome = await this.executeTool(
+        context,
+        iteration,
+        toolDecision,
+        toolExecutions,
+      );
+
+      if (toolOutcome === 'stop') {
+        return this.result(
+          context,
+          toolExecutions,
+          decisions,
+          iteration,
+          DEFAULT_FINAL_INSTRUCTIONS,
+        );
+      }
     }
 
     decisions.push({
@@ -212,34 +245,134 @@ export class OrchestratorService {
     iteration: number,
     decision: Extract<OrchestratorDecision, { type: 'tool_call' }>,
     executions: OrchestratorToolExecution[],
-  ): Promise<void> {
-    try {
-      const execution = await this.toolsService.execute({
-        requestId: context.requestId,
-        tool: decision.tool,
-        input: decision.arguments,
-        context: {
-          currentConversationId: context.conversationId,
-          messages: context.recentMessages,
-        },
-      });
+  ): Promise<'continue' | 'stop'> {
+    // conversation_retrieval is read-only and idempotent, so one runtime retry
+    // is safe for a temporary infrastructure failure. Model retries are kept
+    // only for validation errors that the model can actually correct.
+    const maxRuntimeAttempts =
+      decision.tool === 'conversation_retrieval' ? 2 : 1;
 
-      executions.push({
-        iteration,
-        tool: execution.tool,
-        arguments: decision.arguments,
-        status: 'success',
-        result: execution.result,
-      });
-    } catch (error) {
-      executions.push({
-        iteration,
-        tool: decision.tool,
-        arguments: decision.arguments,
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown tool error',
-      });
+    for (let attempt = 1; attempt <= maxRuntimeAttempts; attempt += 1) {
+      try {
+        const execution = await this.toolsService.execute({
+          requestId: context.requestId,
+          tool: decision.tool,
+          input: decision.arguments,
+          context: {
+            conversationId: context.conversationId,
+            currentMessageId: context.currentMessageId,
+            currentDateTime: context.currentDateTime,
+            messages: context.recentMessages,
+          },
+        });
+
+        executions.push({
+          iteration,
+          tool: execution.tool,
+          arguments: decision.arguments,
+          status: 'success',
+          result: execution.result,
+        });
+        return 'continue';
+      } catch (error) {
+        const toolError = this.toToolExecutionError(error, decision.tool);
+
+        if (
+          toolError.errorType === 'TRANSIENT' &&
+          attempt < maxRuntimeAttempts
+        ) {
+          this.logger.warn(
+            `Retrying ${decision.tool} after a transient runtime failure (attempt ${attempt + 1}/${maxRuntimeAttempts}).`,
+          );
+          continue;
+        }
+
+        executions.push({
+          iteration,
+          tool: decision.tool,
+          arguments: decision.arguments,
+          status: 'error',
+          error: toolError,
+        });
+        return toolError.modelRetryable ? 'continue' : 'stop';
+      }
     }
+
+    return 'stop';
+  }
+
+  private toToolExecutionError(
+    error: unknown,
+    tool: string,
+  ): ToolExecutionError {
+    if (error instanceof ToolArgumentException) {
+      return {
+        status: 'error',
+        errorType: 'INVALID_ARGUMENT',
+        tool,
+        argument: error.argument,
+        message: this.exceptionMessage(error),
+        modelRetryable: true,
+      };
+    }
+
+    if (error instanceof ToolRuntimeContextException) {
+      return {
+        status: 'error',
+        errorType: 'RUNTIME_CONTEXT',
+        tool,
+        message: 'The runtime context required for this tool is unavailable.',
+        modelRetryable: false,
+      };
+    }
+
+    if (error instanceof BadRequestException) {
+      return {
+        status: 'error',
+        errorType: 'INVALID_ARGUMENT',
+        tool,
+        message: this.exceptionMessage(error),
+        modelRetryable: true,
+      };
+    }
+
+    const message =
+      error instanceof Error ? error.message : 'Unknown tool error';
+    const normalizedMessage = message.toLowerCase();
+    const transient =
+      normalizedMessage.includes('timeout') ||
+      normalizedMessage.includes('etimedout') ||
+      normalizedMessage.includes('econnrefused') ||
+      normalizedMessage.includes('temporarily unavailable');
+
+    return {
+      status: 'error',
+      errorType: transient ? 'TRANSIENT' : 'TECHNICAL',
+      tool,
+      message: transient
+        ? 'The tool service is temporarily unavailable.'
+        : 'The tool could not be executed due to a runtime failure.',
+      modelRetryable: false,
+    };
+  }
+
+  private exceptionMessage(error: BadRequestException): string {
+    const response = error.getResponse();
+
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    if (
+      response &&
+      typeof response === 'object' &&
+      'message' in response &&
+      typeof response.message === 'string'
+    ) {
+      return response.message;
+    }
+
+    return error.message;
   }
 
   private hasEquivalentToolExecution(
@@ -258,32 +391,28 @@ export class OrchestratorService {
   private normalizeToolDecision(
     decision: Extract<OrchestratorDecision, { type: 'tool_call' }>,
     maxToolResultTokens: number,
-    currentConversationId: string,
   ): Extract<OrchestratorDecision, { type: 'tool_call' }> {
     if (decision.tool !== 'conversation_retrieval') {
       return decision;
     }
 
-    const rawConversationId = decision.arguments.conversationId;
-    const conversationId =
-      typeof rawConversationId === 'string' &&
-      this.isUuid(rawConversationId) &&
-      rawConversationId.toLowerCase() !== currentConversationId.toLowerCase()
-        ? rawConversationId
-        : undefined;
+    const removedRuntimeKeys = Object.keys(decision.arguments).filter((key) =>
+      isRuntimeOwnedToolArgument(key),
+    );
 
-    if (rawConversationId !== undefined && !conversationId) {
+    if (removedRuntimeKeys.length > 0) {
       this.logger.warn(
-        `Ignoring unsafe conversationId from Orchestrator: ${JSON.stringify(rawConversationId)}`,
+        `Ignoring runtime-owned arguments from Orchestrator: ${removedRuntimeKeys.join(', ')}`,
       );
     }
 
-    const {
-      conversationId: _ignoredConversationId,
-      ...argumentsWithoutConversationId
-    } = decision.arguments;
+    const semanticArguments = Object.fromEntries(
+      Object.entries(decision.arguments).filter(
+        ([key]) => !isRuntimeOwnedToolArgument(key),
+      ),
+    );
 
-    const requestedMaxTokens = decision.arguments.maxContextTokens;
+    const requestedMaxTokens = semanticArguments.maxContextTokens;
     const requestedBudget =
       typeof requestedMaxTokens === 'number' &&
       Number.isInteger(requestedMaxTokens) &&
@@ -294,8 +423,7 @@ export class OrchestratorService {
     return {
       ...decision,
       arguments: {
-        ...argumentsWithoutConversationId,
-        ...(conversationId ? { conversationId } : {}),
+        ...semanticArguments,
         // Concatenated chunk content is sufficient for an agentic
         // decision. Structured messages duplicate that content and are
         // intentionally reserved for the explicit test endpoint.
@@ -303,12 +431,6 @@ export class OrchestratorService {
         maxContextTokens: Math.min(requestedBudget, maxToolResultTokens),
       },
     };
-  }
-
-  private isUuid(value: string): boolean {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-      value,
-    );
   }
 
   private stableJson(value: unknown): string {
@@ -340,13 +462,7 @@ export class OrchestratorService {
       currentConversationExcludedFromRetrieval: true,
       maxToolCallsReached: false,
       toolCallsExecuted: toolExecutions.length,
-      toolExecutions: toolExecutions.map((execution) => ({
-        tool: execution.tool,
-        arguments: execution.arguments,
-        status: execution.status,
-        result: execution.result,
-        error: execution.error,
-      })),
+      toolExecutions: toolExecutions.map(toToolExecutionModelView),
     };
 
     return [

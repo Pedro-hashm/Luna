@@ -1,0 +1,194 @@
+import type { LlmRequest } from '../llm/dto/llm-request.dto';
+import type { LlmResponse } from '../llm/types/types';
+import type {
+  ExecuteToolRequest,
+  ExecuteToolResponse,
+} from '../tools/types/tool.types';
+import { ToolArgumentException } from '../tools/types/tool-errors';
+import type { OrchestratorContext } from './orchestrator.types';
+import { OrchestratorService } from './orchestrator.service';
+
+const conversationId = '9b137f99-72b2-4da3-85d3-164e3a80e57a';
+const currentMessageId = 'b8a78b2f-408a-4d5c-a87d-2d3c252a118e';
+const chunkId = '20e6de7d-8da0-4c13-af19-8c1e641c2707';
+
+describe('OrchestratorService', () => {
+  it('injects runtime context, strips model-produced IDs, and keeps IDs out of later prompts', async () => {
+    const harness = createHarness([
+      llmResponse(
+        JSON.stringify({
+          type: 'tool_call',
+          tool: 'conversation_retrieval',
+          arguments: {
+            query: 'tokyo ghoul',
+            conversationId: 'malformed-id-from-model',
+          },
+        }),
+      ),
+      llmResponse('{"type":"finalize"}'),
+    ]);
+    harness.execute.mockResolvedValue(toolResponse());
+
+    await harness.service.execute(orchestratorContext());
+
+    expect(harness.execute).toHaveBeenCalledWith({
+      requestId: '7a55c36d-7c1b-44e1-a7a3-3ed3e1dc94da',
+      tool: 'conversation_retrieval',
+      input: {
+        query: 'tokyo ghoul',
+        includeMessages: false,
+        maxContextTokens: 5000,
+      },
+      context: {
+        conversationId,
+        currentMessageId,
+        currentDateTime: '2026-09-21T12:00:00.000Z',
+        messages: orchestratorContext().recentMessages,
+      },
+    });
+
+    const nextPrompt = JSON.stringify(harness.chat.mock.calls[1]?.[0].messages);
+
+    expect(nextPrompt).not.toContain(conversationId);
+    expect(nextPrompt).not.toContain(currentMessageId);
+    expect(nextPrompt).not.toContain(chunkId);
+    expect(nextPrompt).toContain('Tokyo Ghoul é uma série');
+  });
+
+  it('returns structured semantic validation feedback to the model', async () => {
+    const harness = createHarness([
+      llmResponse(
+        JSON.stringify({
+          type: 'tool_call',
+          tool: 'conversation_retrieval',
+          arguments: { query: 42 },
+        }),
+      ),
+      llmResponse('{"type":"finalize"}'),
+    ]);
+    harness.execute.mockRejectedValue(
+      new ToolArgumentException('query', 'query must be a string'),
+    );
+
+    await harness.service.execute(orchestratorContext());
+
+    const nextPrompt = JSON.stringify(harness.chat.mock.calls[1]?.[0].messages);
+
+    expect(harness.execute).toHaveBeenCalledTimes(1);
+    expect(nextPrompt).toContain('INVALID_ARGUMENT');
+    expect(nextPrompt).toContain('query must be a string');
+    expect(nextPrompt).toContain('\\"modelRetryable\\":true');
+  });
+
+  it('retries a transient read-only tool failure in the runtime, not through another model iteration', async () => {
+    const harness = createHarness([
+      llmResponse(
+        JSON.stringify({
+          type: 'tool_call',
+          tool: 'conversation_retrieval',
+          arguments: { query: 'tokyo ghoul' },
+        }),
+      ),
+      llmResponse('{"type":"finalize"}'),
+    ]);
+    harness.execute
+      .mockRejectedValueOnce(new Error('ETIMEDOUT'))
+      .mockResolvedValueOnce(toolResponse());
+
+    await harness.service.execute(orchestratorContext());
+
+    expect(harness.execute).toHaveBeenCalledTimes(2);
+    expect(harness.chat).toHaveBeenCalledTimes(2);
+  });
+});
+
+function createHarness(decisions: LlmResponse[]) {
+  const chat = jest.fn<Promise<LlmResponse>, [LlmRequest]>();
+  const execute = jest.fn<Promise<ExecuteToolResponse>, [ExecuteToolRequest]>();
+
+  for (const decision of decisions) {
+    chat.mockResolvedValueOnce(decision);
+  }
+
+  const service = new OrchestratorService(
+    { chat } as never,
+    {
+      getApplicationSettings: jest.fn().mockResolvedValue({
+        orchestratorCombo: 'local-general',
+        orchestratorMaxIterations: 4,
+        orchestratorMaxToolCalls: 4,
+        orchestratorToolResultMaxTokens: 5000,
+      }),
+    } as never,
+    { execute } as never,
+    {
+      describe: jest.fn().mockReturnValue([
+        {
+          name: 'conversation_retrieval',
+          description: 'Recupera contexto histórico.',
+          inputSchema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { query: { type: 'string' } },
+          },
+        },
+      ]),
+      has: jest.fn().mockReturnValue(true),
+    } as never,
+    { recordTrace: jest.fn().mockResolvedValue(undefined) } as never,
+  );
+
+  return { service, chat, execute };
+}
+
+function llmResponse(content: string): LlmResponse {
+  return { content, model: 'test-model' };
+}
+
+function orchestratorContext(): OrchestratorContext {
+  return {
+    requestId: '7a55c36d-7c1b-44e1-a7a3-3ed3e1dc94da',
+    input: 'Já falamos sobre Tokyo Ghoul?',
+    conversationId,
+    currentMessageId,
+    currentDateTime: '2026-09-21T12:00:00.000Z',
+    recentMessages: [
+      {
+        id: currentMessageId,
+        role: 'user',
+        content: 'Já falamos sobre Tokyo Ghoul?',
+        createdAt: '2026-09-21T12:00:00.000Z',
+      },
+    ],
+    memory: { items: [] },
+    preferences: {},
+    runtime: {},
+  };
+}
+
+function toolResponse(): ExecuteToolResponse {
+  return {
+    tool: 'conversation_retrieval',
+    context: {
+      conversationId,
+      currentMessageId,
+      currentDateTime: '2026-09-21T12:00:00.000Z',
+      messages: [],
+    },
+    result: {
+      query: 'tokyo ghoul',
+      results: [
+        {
+          conversationId,
+          chunkId,
+          status: 'closed',
+          score: 0.9,
+          content: 'assistant: Tokyo Ghoul é uma série.',
+          startMessageId: currentMessageId,
+          endMessageId: currentMessageId,
+          tokenCount: 10,
+        },
+      ],
+    },
+  };
+}

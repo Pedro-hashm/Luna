@@ -1,10 +1,12 @@
 import type { RuntimeMessage } from '../user-agent/types/user-agent.types';
 import type { ConversationRetrievalResult } from '../tools/conversation-retrieval/types/conversation-retrieval.types';
+import type { ToolExecutionError } from '../tools/types/tool.types';
 
 export type OrchestratorContext = {
   requestId: string;
   input: string;
   conversationId: string;
+  currentMessageId: string;
   currentDateTime: string;
   recentMessages: RuntimeMessage[];
   memory: {
@@ -20,7 +22,7 @@ export type OrchestratorToolExecution = {
   arguments: Record<string, unknown>;
   status: 'success' | 'error';
   result?: ConversationRetrievalResult;
-  error?: string;
+  error?: ToolExecutionError;
 };
 
 export type OrchestratorDecisionRecord = {

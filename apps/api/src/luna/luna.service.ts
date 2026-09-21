@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
 import type { ChatMessage } from '../llm/types/types';
 import { SettingsService } from '../settings/settings.service';
+import { toToolExecutionModelView } from '../tools/tool-model-view';
 import type { LunaGenerateInput, LunaGenerateResult } from './luna.types';
 
 const LUNA_BASE_PROMPT = `You are Luna, the final assistant layer for a personal assistant application.
@@ -74,10 +75,7 @@ export class LunaService {
     return JSON.stringify(
       executions.map((execution) => ({
         name: execution.tool,
-        arguments: execution.arguments,
-        status: execution.status,
-        result: execution.result,
-        error: execution.error,
+        ...toToolExecutionModelView(execution),
       })),
     );
   }

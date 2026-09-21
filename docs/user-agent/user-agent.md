@@ -31,6 +31,7 @@ type UserAgentInitialState = {
   requestId: string;
   input: string;
   conversationId: string;
+  currentMessageId: string;
   currentDateTime: string;
   recentMessages: RuntimeMessage[];
 };
@@ -38,7 +39,7 @@ type UserAgentInitialState = {
 
 O estado também já contém espaços extensíveis para `memory`, `preferences` e `runtime`, todos vazios na implementação atual.
 
-`currentDateTime` é obtido uma vez no `ConversationModule` e propagado como ISO string. Orchestrator e Luna usam esse mesmo valor; eles não recalculam a noção temporal da interação.
+`currentDateTime` é obtido uma vez no `ConversationModule` e propagado como ISO string. `currentMessageId` aponta para a mensagem de usuário persistida que iniciou a iteração. Orchestrator e Luna usam o mesmo valor temporal; tools recebem ambos como contexto de runtime e não pedem que o modelo reproduza identificadores técnicos.
 
 ## Contexto imediato
 

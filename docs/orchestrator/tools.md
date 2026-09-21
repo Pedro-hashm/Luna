@@ -114,26 +114,28 @@ Exemplo:
 Busca, filtra e recupera conteúdo de conversas anteriores à conversa atual, combinando:
 
 - intenção semântica;
-- filtros por conversa;
+- escopo histórico automático ou escopo da conversa atual quando solicitado;
 - filtros temporais;
 - ranking por embeddings de `ConversationChunk`;
 - recuperação de mensagens completas;
 - deduplicação do overlap;
 - inclusão da tail não indexada de chunks `open`.
 
-O contexto recente da conversa já pertence ao fluxo normal do `ConversationModule` e não deve ser pesquisado por padrão. A tool deve receber o identificador da conversa atual para excluí-la, mas permitir um escopo explícito quando o usuário pedir uma conversa específica.
+O contexto recente da conversa já pertence ao fluxo normal do `ConversationModule` e não deve ser pesquisado por padrão. O runtime injeta a conversa e a mensagem atuais, exclui automaticamente a conversa corrente e só a inclui quando o Orchestrator usa `searchCurrentConversation: true` para um pedido explícito do usuário. UUIDs e outros IDs técnicos não fazem parte dos argumentos produzidos pelo modelo.
 
 Implementação atual:
 
 - `ToolsModule` abriga o dispatcher e o `ConversationRetrievalModule`;
 - `POST /tools/execute` aceita `tool: "conversation_retrieval"`;
-- a busca sem `query` usa recuperação direta por conversa/data;
+- a busca sem `query` usa recuperação direta por data dentro do escopo derivado pelo runtime;
 - a busca com `query` gera o embedding Qwen 0.6B e ranqueia os chunks no pgvector;
 - chunks `open` recebem a tail posterior ao `end_message_id`;
 - `includeMessages` vem habilitado por padrão e deduplica mensagens repetidas pelo overlap;
 - o orçamento padrão é 8.000 tokens, com `topK` padrão 8.
 
 O fluxo detalhado de chunks abertos, chunks fechados, atualização a cada 1000 tokens, fechamento em 4000 tokens e overlap de 800 tokens está documentado em [old-history-retrieval.md](../conversation/old-history-retrieval.md). O contrato específico da tool está em [conversation-retrieval.md](tools/conversation-retrieval.md).
+
+A regra reutilizável para separar argumentos semânticos, contexto de runtime e valores derivados está em [tool-runtime-context.md](tool-runtime-context.md).
 
 ## 🌐 Web / External Information
 

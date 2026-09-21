@@ -1,10 +1,8 @@
 export type ConversationRetrievalInput = {
     query?: string;
-    currentConversationId?: string;
-    conversationId?: string;
     dateFrom?: string;
     dateTo?: string;
-    topK?: number;
+    searchCurrentConversation?: boolean;
     maxContextTokens?: number;
     includeMessages?: boolean;
 };
