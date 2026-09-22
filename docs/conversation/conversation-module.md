@@ -33,7 +33,7 @@ ConversationService
     └─ ConversationChunkService.synchronizeConversation()
 ```
 
-O `ConversationService` captura `currentDateTime` uma única vez antes de iniciar esse fluxo. O valor ISO é propagado ao `UserAgent`, ao `Orchestrator` e ao `LunaModule`; timestamps criados posteriormente servem somente para telemetria, não para decisões semânticas.
+O `ConversationService` captura `currentDateTime` uma única vez antes de iniciar esse fluxo. O valor é ISO 8601 no `appTimezone` configurado, incluindo offset, e é propagado ao `UserAgent`, ao `Orchestrator` e ao `LunaModule`; timestamps criados posteriormente servem somente para telemetria, não para decisões semânticas.
 
 ## Contexto imediato
 

@@ -121,7 +121,7 @@ Busca, filtra e recupera conteúdo de conversas anteriores à conversa atual, co
 - deduplicação do overlap;
 - inclusão da tail não indexada de chunks `open`.
 
-O contexto recente da conversa já pertence ao fluxo normal do `ConversationModule` e não deve ser pesquisado por padrão. O runtime injeta a conversa e a mensagem atuais, exclui automaticamente a conversa corrente e só a inclui quando o Orchestrator usa `searchCurrentConversation: true` para um pedido explícito do usuário. UUIDs e outros IDs técnicos não fazem parte dos argumentos produzidos pelo modelo.
+O contexto recente da conversa já pertence ao fluxo normal do `ConversationModule`, mas sua ausência não restringe uma busca. O runtime injeta a conversa e a mensagem atuais; `scope: "auto"` (default) mantém tanto a conversa atual quanto outras elegíveis, `current_conversation` restringe à atual e `historical` a exclui. UUIDs e outros IDs técnicos não fazem parte dos argumentos produzidos pelo modelo.
 
 Implementação atual:
 
@@ -130,6 +130,7 @@ Implementação atual:
 - a busca sem `query` usa recuperação direta por data dentro do escopo derivado pelo runtime;
 - a busca com `query` gera o embedding Qwen 0.6B e ranqueia os chunks no pgvector;
 - chunks `open` recebem a tail posterior ao `end_message_id`;
+- buscas com `dateFrom` e/ou `dateTo` recompõem a saída somente com mensagens da janela e anexam `timeRange` confiável em cada resultado;
 - `includeMessages` vem habilitado por padrão e deduplica mensagens repetidas pelo overlap;
 - o orçamento padrão é 8.000 tokens, com `topK` padrão 8.
 

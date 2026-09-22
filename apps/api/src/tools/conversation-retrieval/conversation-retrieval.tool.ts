@@ -7,15 +7,18 @@ import { ConversationRetrievalService } from './conversation-retrieval.service';
 import type {
   ConversationRetrievalInput,
   ConversationRetrievalResult,
+  ConversationRetrievalScope,
 } from './types/conversation-retrieval.types';
+import { CONVERSATION_RETRIEVAL_SCOPES } from './types/conversation-retrieval.types';
 
 @Injectable()
 export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
   readonly name = 'conversation_retrieval' as const;
   readonly description =
-    'Recupera histórico por semântica ou período. Por padrão, a conversa atual é ' +
-    'excluída automaticamente; use searchCurrentConversation somente quando o ' +
-    'usuário pedir explicitamente para pesquisar nesta conversa.';
+    'Recupera conversas por semântica ou período. scope=auto (default) não ' +
+    'restringe a busca a uma conversa; use current_conversation somente se o ' +
+    'usuário pedir explicitamente para pesquisar nesta conversa, ou historical ' +
+    'quando pedir exclusivamente outras conversas.';
   readonly inputSchema = {
     type: 'object' as const,
     additionalProperties: false,
@@ -35,10 +38,11 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
         description:
           'Data ISO opcional de fim; YYYY-MM-DD usa o fuso da aplicação.',
       },
-      searchCurrentConversation: {
-        type: 'boolean',
+      scope: {
+        type: 'string',
+        enum: CONVERSATION_RETRIEVAL_SCOPES,
         description:
-          'Inclua somente quando o usuário pedir explicitamente para pesquisar mensagens anteriores desta conversa atual.',
+          'Escopo opcional. auto é o default e não restringe por conversa; current_conversation busca somente nesta conversa; historical exclui a conversa atual.',
       },
       maxContextTokens: {
         type: 'integer',
@@ -77,7 +81,7 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
       'query',
       'dateFrom',
       'dateTo',
-      'searchCurrentConversation',
+      'scope',
       'maxContextTokens',
       'includeMessages',
     ]);
@@ -95,10 +99,7 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
       query: this.optionalString(input.query, 'query'),
       dateFrom: this.optionalString(input.dateFrom, 'dateFrom'),
       dateTo: this.optionalString(input.dateTo, 'dateTo'),
-      searchCurrentConversation: this.optionalBoolean(
-        input.searchCurrentConversation,
-        'searchCurrentConversation',
-      ),
+      scope: this.optionalScope(input.scope),
       maxContextTokens: this.optionalInteger(
         input.maxContextTokens,
         'maxContextTokens',
@@ -144,5 +145,27 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
     }
 
     return value;
+  }
+
+  private optionalScope(
+    value: unknown,
+  ): ConversationRetrievalScope | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    if (
+      typeof value !== 'string' ||
+      !CONVERSATION_RETRIEVAL_SCOPES.includes(
+        value as ConversationRetrievalScope,
+      )
+    ) {
+      throw new ToolArgumentException(
+        'scope',
+        `scope must be one of: ${CONVERSATION_RETRIEVAL_SCOPES.join(', ')}`,
+      );
+    }
+
+    return value as ConversationRetrievalScope;
   }
 }

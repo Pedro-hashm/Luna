@@ -39,7 +39,9 @@ type UserAgentInitialState = {
 
 O estado também já contém espaços extensíveis para `memory`, `preferences` e `runtime`, todos vazios na implementação atual.
 
-`currentDateTime` é obtido uma vez no `ConversationModule` e propagado como ISO string. `currentMessageId` aponta para a mensagem de usuário persistida que iniciou a iteração. Orchestrator e Luna usam o mesmo valor temporal; tools recebem ambos como contexto de runtime e não pedem que o modelo reproduza identificadores técnicos.
+`currentDateTime` é obtido uma vez no `ConversationModule` e propagado como ISO 8601 no fuso configurado, incluindo o offset — por exemplo, `2026-09-21T21:25:00.000-03:00`. Assim, "hoje" sempre é interpretado pela data local da aplicação, não pela data UTC. `currentMessageId` aponta para a mensagem de usuário persistida que iniciou a iteração. Orchestrator e Luna usam o mesmo valor temporal; tools recebem ambos como contexto de runtime e não pedem que o modelo reproduza identificadores técnicos.
+
+Os instantes persistidos no PostgreSQL permanecem canônicos em UTC. A API os serializa no `appTimezone` para telas e observabilidade; o armazenamento em UTC evita alterar o instante histórico ao trocar de fuso ou durante mudanças de horário de verão.
 
 ## Contexto imediato
 

@@ -42,6 +42,7 @@ function toConversationRetrievalModelResult(
       status: item.status,
       score: item.score,
       tokenCount: item.tokenCount,
+      timeRange: item.timeRange,
       content: item.content,
       tailContent: item.tailContent,
       messages: item.messages?.map((message) => ({

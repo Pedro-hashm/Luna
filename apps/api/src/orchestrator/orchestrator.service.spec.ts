@@ -13,14 +13,15 @@ const currentMessageId = 'b8a78b2f-408a-4d5c-a87d-2d3c252a118e';
 const chunkId = '20e6de7d-8da0-4c13-af19-8c1e641c2707';
 
 describe('OrchestratorService', () => {
-  it('injects runtime context, strips model-produced IDs, and keeps IDs out of later prompts', async () => {
+  it('uses auto for an unlocated memory request, injects runtime context, and keeps IDs out of later prompts', async () => {
     const harness = createHarness([
       llmResponse(
         JSON.stringify({
           type: 'tool_call',
           tool: 'conversation_retrieval',
           arguments: {
-            query: 'tokyo ghoul',
+            query: 'projeto secreto Nebula 47',
+            searchCurrentConversation: true,
             conversationId: 'malformed-id-from-model',
           },
         }),
@@ -35,7 +36,8 @@ describe('OrchestratorService', () => {
       requestId: '7a55c36d-7c1b-44e1-a7a3-3ed3e1dc94da',
       tool: 'conversation_retrieval',
       input: {
-        query: 'tokyo ghoul',
+        query: 'projeto secreto Nebula 47',
+        scope: 'auto',
         includeMessages: false,
         maxContextTokens: 5000,
       },
@@ -48,7 +50,12 @@ describe('OrchestratorService', () => {
     });
 
     const nextPrompt = JSON.stringify(harness.chat.mock.calls[1]?.[0].messages);
+    const firstPrompt = JSON.stringify(
+      harness.chat.mock.calls[0]?.[0].messages,
+    );
 
+    expect(firstPrompt).toContain('scope=auto');
+    expect(firstPrompt).toContain('Nunca escolha esse escopo apenas porque');
     expect(nextPrompt).not.toContain(conversationId);
     expect(nextPrompt).not.toContain(currentMessageId);
     expect(nextPrompt).not.toContain(chunkId);
@@ -187,6 +194,11 @@ function toolResponse(): ExecuteToolResponse {
           startMessageId: currentMessageId,
           endMessageId: currentMessageId,
           tokenCount: 10,
+          timeRange: {
+            start: '2026-09-21T09:00:00.000-03:00',
+            end: '2026-09-21T09:00:00.000-03:00',
+            timeZone: 'America/Sao_Paulo',
+          },
         },
       ],
     },

@@ -27,6 +27,11 @@ describe('toToolExecutionModelView', () => {
             startMessageId: messageId,
             endMessageId: messageId,
             tokenCount: 5,
+            timeRange: {
+              start: '2026-09-21T09:00:00.000-03:00',
+              end: '2026-09-21T09:00:00.000-03:00',
+              timeZone: 'America/Sao_Paulo',
+            },
             messages: [
               {
                 id: messageId,
@@ -47,5 +52,6 @@ describe('toToolExecutionModelView', () => {
     expect(serialized).not.toContain(messageId);
     expect(serialized).not.toContain(chunkId);
     expect(serialized).toContain('Tokyo Ghoul');
+    expect(serialized).toContain('America/Sao_Paulo');
   });
 });

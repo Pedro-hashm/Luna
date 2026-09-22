@@ -23,6 +23,10 @@ services:
     image: ollama/ollama:latest
     container_name: luna-v2-ollama
     gpus: all
+    environment:
+      # The local provider must allocate this window in the Ollama runner.
+      # 8k safely covers the Orchestrator's current prompt on the 8 GB GPU.
+      OLLAMA_CONTEXT_LENGTH: "8192"
     restart: unless-stopped
     ports:
       - "127.0.0.1:${LUNA_V2_OLLAMA_PORT:-11435}:11434"
@@ -55,6 +59,7 @@ services:
 
         ensure_model "$$OLLAMA_CHAT_MODEL"
         ensure_model "$$OLLAMA_EMBEDDING_MODEL"
+        ensure_model "qwen3.5:4b"
     depends_on:
       ollama:
         condition: service_healthy

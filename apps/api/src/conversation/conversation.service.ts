@@ -14,6 +14,7 @@ import type {
 } from '../observability/observability.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { formatApplicationDateTime } from '../time/application-time';
 import { ContextManagerService } from '../user-agent/context-manager/context-manager.service';
 import { UserAgentService } from '../user-agent/user-agent.service';
 import type {
@@ -55,25 +56,35 @@ export class ConversationService {
   }
 
   async listConversations(): Promise<ConversationListItemResponse[]> {
-    const conversations = await this.prisma.conversation.findMany({
-      include: {
-        messages: {
-          select: {
-            content: true,
-            createdAt: true,
+    const [settings, conversations] = await Promise.all([
+      this.settingsService.getApplicationSettings(),
+      this.prisma.conversation.findMany({
+        include: {
+          messages: {
+            select: {
+              content: true,
+              createdAt: true,
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 1,
           },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-        },
-        _count: {
-          select: {
-            messages: true,
+          _count: {
+            select: {
+              messages: true,
+            },
           },
         },
-      },
-    });
+      }),
+    ]);
 
     return conversations
+      .sort((first, second) => {
+        const firstUpdatedAt = first.messages[0]?.createdAt ?? first.updatedAt;
+        const secondUpdatedAt =
+          second.messages[0]?.createdAt ?? second.updatedAt;
+
+        return secondUpdatedAt.getTime() - firstUpdatedAt.getTime();
+      })
       .map((conversation) => {
         const latestMessage = conversation.messages[0];
 
@@ -82,30 +93,35 @@ export class ConversationService {
           title: conversation.title ?? 'Nova conversa',
           preview: latestMessage?.content ?? '',
           messageCount: conversation._count.messages,
-          createdAt: conversation.createdAt,
+          createdAt: formatApplicationDateTime(
+            conversation.createdAt,
+            settings.appTimezone,
+          ),
           // `updatedAt` belongs to Conversation and does not change when a
           // child Message is inserted. The latest message is the real
           // activity timestamp for ordering the sidebar.
-          updatedAt: latestMessage?.createdAt ?? conversation.updatedAt,
+          updatedAt: formatApplicationDateTime(
+            latestMessage?.createdAt ?? conversation.updatedAt,
+            settings.appTimezone,
+          ),
         };
-      })
-      .sort(
-        (first, second) =>
-          second.updatedAt.getTime() - first.updatedAt.getTime(),
-      );
+      });
   }
 
   async getConversation(
     conversationId: string,
   ): Promise<ConversationDetailResponse> {
-    const conversation = await this.prisma.conversation.findUnique({
-      where: { id: conversationId },
-      include: {
-        messages: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const [settings, conversation] = await Promise.all([
+      this.settingsService.getApplicationSettings(),
+      this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: {
+          messages: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          },
         },
-      },
-    });
+      }),
+    ]);
 
     if (!conversation) {
       throw new NotFoundException(
@@ -116,10 +132,16 @@ export class ConversationService {
     return {
       id: conversation.id,
       title: conversation.title ?? 'Nova conversa',
-      createdAt: conversation.createdAt,
-      updatedAt: conversation.updatedAt,
+      createdAt: formatApplicationDateTime(
+        conversation.createdAt,
+        settings.appTimezone,
+      ),
+      updatedAt: formatApplicationDateTime(
+        conversation.updatedAt,
+        settings.appTimezone,
+      ),
       messages: conversation.messages.map((message) =>
-        this.toMessageResponse(message),
+        this.toMessageResponse(message, settings.appTimezone),
       ),
     };
   }
@@ -137,9 +159,14 @@ export class ConversationService {
     // This is the only semantic clock for the entire interaction. It is
     // propagated to the UserAgent, Orchestrator and Luna without being
     // recomputed by those layers.
-    const currentDateTime = new Date();
+    const settings = await this.settingsService.getApplicationSettings();
+    const currentInstant = new Date();
+    const currentDateTime = formatApplicationDateTime(
+      currentInstant,
+      settings.appTimezone,
+    );
     const requestId = randomUUID();
-    const traceStartedAt = currentDateTime;
+    const traceStartedAt = currentInstant;
     const traceStartMs = Date.now();
     const contextStageStartedAt = Date.now();
     const conversation = conversationId
@@ -178,10 +205,9 @@ export class ConversationService {
         content: normalizedContent,
       },
     });
-    const settings = await this.settingsService.getApplicationSettings();
     const recentMessages = this.contextManager.buildRecentMessages(
       [...conversation.messages, userMessage].map((message) =>
-        this.toRuntimeMessage(message),
+        this.toRuntimeMessage(message, settings.appTimezone),
       ),
       settings.immediateContextMaxTokens,
     );
@@ -190,7 +216,7 @@ export class ConversationService {
       recentMessages,
       [],
       undefined,
-      currentDateTime.toISOString(),
+      currentDateTime,
     );
     const userAgentStartedAt = Date.now();
 
@@ -202,7 +228,7 @@ export class ConversationService {
         input: normalizedContent,
         conversationId: conversation.id,
         currentMessageId: userMessage.id,
-        currentDateTime: currentDateTime.toISOString(),
+        currentDateTime,
         recentMessages,
       });
     } catch (error) {
@@ -307,8 +333,8 @@ export class ConversationService {
     return {
       conversationId: conversation.id,
       messages: [
-        this.toMessageResponse(userMessage),
-        this.toMessageResponse(assistantMessage),
+        this.toMessageResponse(userMessage, settings.appTimezone),
+        this.toMessageResponse(assistantMessage, settings.appTimezone),
       ],
     };
   }
@@ -424,7 +450,11 @@ export class ConversationService {
         continue;
       }
 
-      if (message.content.startsWith('Current iteration time:')) {
+      if (
+        message.content.startsWith(
+          'Current iteration time in the application timezone:',
+        )
+      ) {
         system.push({
           type: 'current_date_time',
           label: 'Data/hora da iteração',
@@ -459,33 +489,39 @@ export class ConversationService {
       : 'error';
   }
 
-  private toRuntimeMessage(message: {
-    id: string;
-    role: MessageRole;
-    content: string;
-    createdAt: Date;
-  }): RuntimeMessage {
+  private toRuntimeMessage(
+    message: {
+      id: string;
+      role: MessageRole;
+      content: string;
+      createdAt: Date;
+    },
+    timeZone: string,
+  ): RuntimeMessage {
     return {
       id: message.id,
       role: message.role,
       content: message.content,
-      createdAt: message.createdAt.toISOString(),
+      createdAt: formatApplicationDateTime(message.createdAt, timeZone),
     };
   }
 
-  private toMessageResponse(message: {
-    id: string;
-    role: MessageRole;
-    content: string;
-    model: string | null;
-    createdAt: Date;
-  }): ConversationMessageResponse {
+  private toMessageResponse(
+    message: {
+      id: string;
+      role: MessageRole;
+      content: string;
+      model: string | null;
+      createdAt: Date;
+    },
+    timeZone: string,
+  ): ConversationMessageResponse {
     return {
       id: message.id,
       role: message.role,
       content: message.content,
       model: message.model,
-      createdAt: message.createdAt,
+      createdAt: formatApplicationDateTime(message.createdAt, timeZone),
     };
   }
 }

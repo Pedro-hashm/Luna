@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ObservabilityService } from '../observability/observability.service';
+import { SettingsService } from '../settings/settings.service';
+import { formatApplicationDateTime } from '../time/application-time';
 import { ToolRegistryService } from './tool-registry.service';
 import type {
   ExecuteToolRequest,
@@ -13,6 +15,7 @@ export class ToolsService {
   constructor(
     private readonly toolRegistry: ToolRegistryService,
     private readonly observabilityService: ObservabilityService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   async execute(request: ExecuteToolRequest): Promise<ExecuteToolResponse> {
@@ -24,7 +27,7 @@ export class ToolsService {
 
     const tool = request.tool;
     const rawInput = this.asRecord(request.input);
-    const context = this.normalizeContext(request.context);
+    const context = await this.normalizeContext(request.context);
     const input = {
       ...rawInput,
     };
@@ -117,15 +120,22 @@ export class ToolsService {
     }
   }
 
-  private normalizeContext(
+  private async normalizeContext(
     context: ExecuteToolRequest['context'],
-  ): ToolExecutionContext {
+  ): Promise<ToolExecutionContext> {
+    const suppliedCurrentDateTime = this.optionalString(
+      context?.currentDateTime,
+    );
+    const settings = suppliedCurrentDateTime
+      ? undefined
+      : await this.settingsService.getApplicationSettings();
+
     return {
       conversationId: this.optionalString(context?.conversationId),
       currentMessageId: this.optionalString(context?.currentMessageId),
       currentDateTime:
-        this.optionalString(context?.currentDateTime) ??
-        new Date().toISOString(),
+        suppliedCurrentDateTime ??
+        formatApplicationDateTime(new Date(), settings!.appTimezone),
       messages: Array.isArray(context?.messages) ? context.messages : [],
     };
   }

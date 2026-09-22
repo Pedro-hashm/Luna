@@ -15,7 +15,7 @@ PATCH /settings
 
 ### Geral
 
-- `appTimezone`: fuso IANA usado para interpretar datas sem horário, como `dateFrom=2026-09-20`.
+- `appTimezone`: fuso IANA usado para interpretar datas sem horário, como `dateFrom=2026-09-20`, para compor o relógio semântico entregue ao Orchestrator/Luna e para serializar datas da API e observabilidade.
 
 ### LLM
 

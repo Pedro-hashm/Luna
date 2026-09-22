@@ -68,7 +68,7 @@ Uma chamada idêntica de mesma tool e mesmos argumentos também é interrompida:
 
 Para `conversation_retrieval`, o código normaliza a execução do Orchestrator com `includeMessages: false` e limita `maxContextTokens` ao teto acima. A rota de teste forçada não recebe essa normalização, pois sua finalidade é inspecionar a saída completa da tool.
 
-O schema exposto ao modelo não contém UUIDs ou outros identificadores técnicos. A API injeta `conversationId`, `currentMessageId` e o horário da interação como contexto de runtime. A busca histórica exclui automaticamente a conversa atual; o modelo usa somente `searchCurrentConversation: true` quando o usuário pedir explicitamente para procurar nela. Consulte [tool-runtime-context.md](tool-runtime-context.md) para o contrato reutilizável de ownership de parâmetros e retries.
+O schema exposto ao modelo não contém UUIDs ou outros identificadores técnicos. A API injeta `conversationId`, `currentMessageId` e o horário da interação como contexto de runtime. Em `conversation_retrieval`, o default é `scope: "auto"`, sem restrição por conversa; `current_conversation` e `historical` só são usados para uma restrição explícita solicitada pelo usuário. Consulte [tool-runtime-context.md](tool-runtime-context.md) para o contrato reutilizável de ownership de parâmetros e retries.
 
 O default conservador de 1000 foi validado contra o combo local atual, que expõe 4096 tokens de contexto. Se um combo com janela maior for configurado no OmniRoute, esse limite pode ser aumentado pela interface.
 
@@ -85,7 +85,7 @@ Hoje, `ConversationRetrievalTool` se registra ao iniciar o `ToolsModule`. O prom
 
 ## LunaModule mínimo
 
-O `LunaModule` atual é uma camada mínima, sem a personalidade final planejada. Ele recebe o contexto imediato, instruções operacionais e resultados confiáveis de tools; então reutiliza o `LlmModule` com `llmCombo` para produzir a resposta persistida pela conversa.
+O `LunaModule` atual é uma camada mínima, sem a personalidade final planejada. Ele recebe o contexto imediato, instruções operacionais e resultados confiáveis de tools; então reutiliza o `LlmModule` com `llmCombo` para produzir a resposta persistida pela conversa. Resultados de `conversation_retrieval` incluem `timeRange` gerado pelo sistema; a instrução-base da Luna trata essa faixa como proveniência temporal confiável e, quando houve `dateFrom`/`dateTo`, limita a evidência histórica ao conteúdo devolvido dentro da janela.
 
 O combo de decisão é independente e vem de `orchestratorCombo`.
 

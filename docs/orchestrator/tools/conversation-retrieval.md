@@ -16,7 +16,7 @@ Oferecer ao Orchestrator uma única interface sofisticada para recuperar informa
 
 O nome `conversation_retrieval` representa a responsabilidade completa: encontrar os trechos relevantes, recuperar o conteúdo necessário e devolvê-lo pronto para o context builder.
 
-Por padrão, a tool pesquisa apenas conversas históricas fora da conversa atual. Identificadores internos não fazem parte da entrada do modelo: o executor recebe a conversa atual, a mensagem atual e o relógio da iteração como contexto de runtime. Quando o usuário pedir explicitamente para pesquisar nesta conversa, o Orchestrator usa `searchCurrentConversation: true`; o runtime então aplica o escopo e o corte temporal corretos sem UUIDs no JSON do modelo.
+Por padrão, a tool usa `scope: "auto"`: ela não restringe a busca por conversa e pode encontrar conteúdo tanto na conversa atual quanto em outras. Identificadores internos não fazem parte da entrada do modelo: o executor recebe a conversa atual, a mensagem atual e o relógio da iteração como contexto de runtime. Quando o usuário pedir explicitamente para pesquisar nesta conversa, o Orchestrator usa `scope: "current_conversation"`; quando pedir somente outras conversas, usa `scope: "historical"`. O runtime aplica o escopo e o corte temporal corretos sem UUIDs no JSON do modelo.
 
 ## O que a tool deve resolver
 
@@ -33,7 +33,7 @@ A tool deve conseguir combinar:
 
 - busca semântica;
 - filtros de data;
-- escopo histórico por padrão ou da conversa atual quando solicitado explicitamente;
+- escopo automático por padrão, da conversa atual ou exclusivamente histórico quando solicitado explicitamente;
 - recuperação de chunks e mensagens;
 - ranking por similaridade;
 - orçamento máximo de contexto;
@@ -41,7 +41,7 @@ A tool deve conseguir combinar:
 
 ## Fronteira com o contexto recente
 
-O histórico imediato da conversa atual já é carregado pelo fluxo normal do `ConversationModule`. Por padrão, a tool exclui `context.conversationId` da busca. A conversa atual só entra quando o Orchestrator fornece `searchCurrentConversation: true`; nesse modo, o runtime exclui candidatos que começam depois de `context.currentMessageId` e limita a saída ao mesmo cutoff, para nunca incluir mensagens posteriores ao ponto atual.
+O histórico imediato da conversa atual já é carregado pelo fluxo normal do `ConversationModule`, mas uma busca sem localização explícita não deve ser restringida por isso. `scope: "auto"` (ou a ausência de `scope`) mantém a conversa atual e outras conversas elegíveis. `scope: "current_conversation"` restringe à atual; `scope: "historical"` a exclui. Sempre que a conversa atual participa, o runtime exclui candidatos que começam depois de `context.currentMessageId` e limita sua saída ao mesmo cutoff, para nunca incluir mensagens posteriores ao ponto atual.
 
 ## Resolução temporal pelo User Agent
 
@@ -78,7 +78,7 @@ type ConversationRetrievalInput = {
   query?: string;
   dateFrom?: string;
   dateTo?: string;
-  searchCurrentConversation?: boolean;
+  scope?: "auto" | "current_conversation" | "historical";
   maxContextTokens?: number;
   includeMessages?: boolean;
 };
@@ -98,13 +98,15 @@ Defaults e limites atuais:
 | `maxContextTokens` | `8000` | `1..20000` |
 | `includeMessages` | `true` | booleano |
 
-Datas no formato `YYYY-MM-DD` são interpretadas como datas do fuso configurado em `APP_TIMEZONE` — por padrão `America/Sao_Paulo` — usando início do dia para `dateFrom` e fim do dia para `dateTo`. Datas ISO com horário e offset preservam o instante informado.
+Datas no formato `YYYY-MM-DD` são interpretadas como datas do fuso configurado em `application_settings.app_timezone` — por padrão `America/Sao_Paulo` — usando início do dia para `dateFrom` e fim do dia para `dateTo`. Datas ISO com horário e offset preservam o instante informado. Portanto, em São Paulo, `2026-09-21` cobre o intervalo UTC de `2026-09-21T03:00:00.000Z` até `2026-09-22T02:59:59.999Z`.
+
+Quando `dateFrom` ou `dateTo` existe, o filtro é aplicado também durante a expansão do chunk: a tool reconstrói a saída usando somente as mensagens cujo `createdAt` está dentro da janela. Um chunk pode atravessar dias por causa do tamanho ou do overlap, mas nenhuma mensagem de fora do período aparece como evidência para uma consulta temporal.
 
 ### Campos
 
 - `query`: semântica opcional usada para gerar o embedding da busca;
 - `dateFrom` e `dateTo`: limites temporais opcionais, absorvendo a antiga ideia de `conversation_search_by_date`. Se somente um for informado, a janela fica aberta no outro lado;
-- `searchCurrentConversation`: solicita o escopo da conversa atual; só deve ser usado para um pedido explícito do usuário;
+- `scope`: escopo opcional. `auto` é o default e não restringe a conversa; `current_conversation` só deve ser usado para um pedido explícito de busca nesta conversa; `historical` só deve ser usado para um pedido explícito de busca em outras conversas;
 - `maxContextTokens`: orçamento máximo do conteúdo devolvido;
 - `includeMessages`: indica se a tool deve retornar mensagens estruturadas além do conteúdo concatenado dos chunks.
 
@@ -134,8 +136,20 @@ O runtime controla `topK`; o executor valida `maxContextTokens` para evitar que 
 
 ```text
 "Procura algumas mensagens atrás nesta conversa quando falamos de Tokyo Ghoul."
-→ query="Tokyo Ghoul" + searchCurrentConversation=true
+→ query="Tokyo Ghoul" + scope="current_conversation"
 → o runtime usa a conversa e a mensagem atuais, sem UUID no argumento
+```
+
+```text
+"O que desenvolvemos sobre o projeto Nebula 47?"
+→ query="projeto Nebula 47" + scope="auto" (ou sem scope)
+→ a ausência de localização não restringe a busca a uma conversa
+```
+
+```text
+"Procure isso em outras conversas."
+→ query="..." + scope="historical"
+→ a conversa atual é excluída pelo runtime
 ```
 
 ## Saída conceitual
@@ -153,6 +167,11 @@ type ConversationRetrievalResult = {
     startMessageId: string;
     endMessageId: string;
     tokenCount: number;
+    timeRange: {
+      start: string;
+      end: string;
+      timeZone: string;
+    };
     messages?: Array<{
       id: string;
       role: string;
@@ -163,13 +182,15 @@ type ConversationRetrievalResult = {
 };
 ```
 
-Esse é o resultado interno, preservado para logs e observabilidade. Antes de ser devolvido ao Orchestrator ou à Luna, ele é projetado para remover `conversationId`, `chunkId`, `startMessageId`, `endMessageId`, IDs de mensagens e timestamps técnicos; os modelos recebem apenas conteúdo e metadados semânticos.
+Esse é o resultado interno, preservado para logs e observabilidade. Antes de ser devolvido ao Orchestrator ou à Luna, ele é projetado para remover `conversationId`, `chunkId`, `startMessageId`, `endMessageId`, IDs de mensagens e timestamps técnicos. A exceção intencional é `timeRange`: é uma proveniência temporal legível, produzida pelo backend no `appTimezone`, que os modelos recebem junto com conteúdo, score e status.
+
+`timeRange.start` e `timeRange.end` representam a primeira e a última mensagem que sustentam aquele resultado, em ISO 8601 com offset. A Luna deve tratá-lo como metadado confiável do sistema: não infere datas pelo texto e não afirma que os resultados não têm horário quando a faixa existe. Quando a execução contém `dateFrom` e/ou `dateTo`, todo resultado devolvido já está dentro dessa janela e é a única evidência histórica válida para ela.
 
 ## Pipeline de execução
 
 ### 1. Normalizar a solicitação
 
-Interpretar a intenção do Orchestrator e validar os filtros semânticos. O contexto de runtime determina o escopo: histórico exclui a conversa atual; `searchCurrentConversation` seleciona a conversa atual e exige a mensagem atual como cutoff.
+Interpretar a intenção do Orchestrator e validar os filtros semânticos. `scope` ausente é normalizado para `auto`; `current_conversation` seleciona a conversa atual e exige a mensagem atual como cutoff; `historical` exclui a conversa atual. `auto` não cria uma restrição de conversa.
 
 ### 2. Escolher a estratégia de recuperação
 
@@ -188,7 +209,7 @@ A consulta deve usar o mesmo modelo e a mesma preparação textual dos embedding
 
 Na busca semântica, buscar `ConversationChunk` por similaridade no `pgvector`, aplicando filtros estruturados antes ou durante a consulta:
 
-- escopo derivado do runtime;
+- escopo semântico escolhido pelo Orchestrator, aplicado com IDs resolvidos pelo runtime;
 - período;
 - usuário, quando existir autenticação;
 - status;
@@ -201,6 +222,8 @@ Chunks `open` e `closed` podem participar do ranking. O embedding de um chunk `o
 ### 5. Recuperar conteúdo atualizado
 
 Depois do ranking, carregar o conteúdo atual dos chunks selecionados.
+
+Em uma consulta temporal, o conteúdo não é reutilizado cegamente de `conversation_chunks.content`: a expansão lê as mensagens reais, aplica a janela temporal e só então monta `content`, `messages` opcionais e `timeRange`. Isso mantém a semântica dos embeddings para o ranking, sem transformar partes adjacentes do chunk em falsa evidência de data.
 
 Para cada chunk `open`, identificar e anexar a tail que chegou depois da última atualização do embedding. O resultado nunca deve esconder mensagens recentes apenas porque elas ainda não atingiram o próximo marco de 1000 tokens.
 

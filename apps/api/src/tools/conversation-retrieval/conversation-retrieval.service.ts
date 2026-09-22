@@ -3,6 +3,7 @@ import { ConversationChunkStatus, Prisma } from '@prisma/client';
 import { ConversationEmbeddingService } from '../../conversation/conversation-embedding.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../../settings/settings.service';
+import { formatApplicationDateTime } from '../../time/application-time';
 import {
   ToolArgumentException,
   ToolRuntimeContextException,
@@ -13,11 +14,13 @@ import type {
   ConversationRetrievalItem,
   ConversationRetrievalMessage,
   ConversationRetrievalResult,
+  ConversationRetrievalScope,
+  ConversationRetrievalTimeRange,
 } from './types/conversation-retrieval.types';
 
 type NormalizedInput = {
   query?: string;
-  scope: 'historical' | 'current';
+  scope: ConversationRetrievalScope;
   runtimeConversationId?: string;
   currentMessageId?: string;
   currentMessageCreatedAt?: Date;
@@ -98,6 +101,7 @@ export class ConversationRetrievalService {
       } strategy (query=${JSON.stringify(normalized.query ?? null)}, ` +
         `dateFrom=${normalized.dateFrom?.toISOString() ?? 'null'}, ` +
         `dateTo=${normalized.dateTo?.toISOString() ?? 'null'}, ` +
+        `scope=${normalized.scope}, ` +
         `timeZone=${normalized.timeZone})`,
     );
 
@@ -127,7 +131,7 @@ export class ConversationRetrievalService {
       context.currentMessageId,
     );
     let currentMessageCreatedAt: Date | undefined;
-    const scope = input.searchCurrentConversation ? 'current' : 'historical';
+    const scope = input.scope ?? 'auto';
 
     if (runtimeConversationId) {
       this.assertRuntimeUuid(runtimeConversationId, 'conversationId');
@@ -137,7 +141,7 @@ export class ConversationRetrievalService {
       this.assertRuntimeUuid(currentMessageId, 'currentMessageId');
     }
 
-    if (scope === 'current') {
+    if (scope === 'current_conversation') {
       if (!runtimeConversationId || !currentMessageId) {
         throw new ToolRuntimeContextException(
           'Current-conversation retrieval requires conversationId and currentMessageId from the runtime.',
@@ -159,6 +163,15 @@ export class ConversationRetrievalService {
       }
 
       currentMessageCreatedAt = currentMessage.createdAt;
+    } else if (scope === 'auto' && runtimeConversationId && currentMessageId) {
+      const currentMessage = await this.prisma.message.findUnique({
+        where: { id: currentMessageId },
+        select: { conversationId: true, createdAt: true },
+      });
+
+      if (currentMessage?.conversationId === runtimeConversationId) {
+        currentMessageCreatedAt = currentMessage.createdAt;
+      }
     }
 
     const dateFrom = this.parseDate(
@@ -294,11 +307,23 @@ export class ConversationRetrievalService {
       };
     }
 
+    const currentConversationStartFilter: Prisma.MessageWhereInput | undefined =
+      input.currentMessageId && input.currentMessageCreatedAt
+        ? {
+            OR: [
+              { createdAt: { lt: input.currentMessageCreatedAt } },
+              {
+                createdAt: input.currentMessageCreatedAt,
+                id: { lte: input.currentMessageId },
+              },
+            ],
+          }
+        : undefined;
     const where: Prisma.ConversationChunkWhereInput = {
       conversationId:
-        input.scope === 'current'
+        input.scope === 'current_conversation'
           ? input.runtimeConversationId
-          : input.runtimeConversationId
+          : input.scope === 'historical' && input.runtimeConversationId
             ? { not: input.runtimeConversationId }
             : undefined,
       conversation:
@@ -306,18 +331,24 @@ export class ConversationRetrievalService {
           ? { messages: { some: dateFilter } }
           : undefined,
       startMessage:
-        input.scope === 'current' &&
-        input.currentMessageId &&
-        input.currentMessageCreatedAt
-          ? {
-              OR: [
-                { createdAt: { lt: input.currentMessageCreatedAt } },
-                {
-                  createdAt: input.currentMessageCreatedAt,
-                  id: { lte: input.currentMessageId },
-                },
-              ],
-            }
+        input.scope === 'current_conversation'
+          ? currentConversationStartFilter
+          : undefined,
+      AND:
+        input.scope === 'auto' &&
+        input.runtimeConversationId &&
+        currentConversationStartFilter
+          ? [
+              {
+                OR: [
+                  { conversationId: { not: input.runtimeConversationId } },
+                  {
+                    conversationId: input.runtimeConversationId,
+                    startMessage: currentConversationStartFilter,
+                  },
+                ],
+              },
+            ]
           : undefined,
     };
 
@@ -352,22 +383,22 @@ export class ConversationRetrievalService {
       filters.push(Prisma.sql`cc."embedding" IS NOT NULL`);
     }
 
-    if (input.scope === 'current' && input.runtimeConversationId) {
+    if (input.scope === 'current_conversation' && input.runtimeConversationId) {
       filters.push(
         Prisma.sql`cc."conversation_id" = ${input.runtimeConversationId}::uuid`,
       );
-    } else if (input.runtimeConversationId) {
+    } else if (input.scope === 'historical' && input.runtimeConversationId) {
       filters.push(
         Prisma.sql`cc."conversation_id" <> ${input.runtimeConversationId}::uuid`,
       );
     }
 
     if (
-      input.scope === 'current' &&
+      input.scope !== 'historical' &&
       input.currentMessageId &&
       input.currentMessageCreatedAt
     ) {
-      filters.push(Prisma.sql`
+      const currentConversationCutoff = Prisma.sql`
         EXISTS (
           SELECT 1
           FROM "messages" chunk_start_message
@@ -380,7 +411,16 @@ export class ConversationRetrievalService {
               )
             )
         )
-      `);
+      `;
+
+      filters.push(
+        input.scope === 'current_conversation'
+          ? currentConversationCutoff
+          : Prisma.sql`(
+              cc."conversation_id" <> ${input.runtimeConversationId}::uuid
+              OR ${currentConversationCutoff}
+            )`,
+      );
     }
 
     if (input.dateFrom || input.dateTo) {
@@ -417,6 +457,13 @@ export class ConversationRetrievalService {
         break;
       }
 
+      // A chunk can be selected from a conversation that has a matching date,
+      // while this particular chunk has no message inside that window. Never
+      // return its indexed text as evidence for a date-bounded retrieval.
+      if (messages.range.length === 0) {
+        continue;
+      }
+
       const rendered = this.renderWithinBudget(
         candidate,
         messages,
@@ -441,6 +488,7 @@ export class ConversationRetrievalService {
         startMessageId: candidate.startMessageId,
         endMessageId: candidate.endMessageId,
         tokenCount: candidate.tokenCount,
+        timeRange: this.describeTimeRange(messages.range, input.timeZone),
       };
 
       if (input.includeMessages) {
@@ -477,7 +525,7 @@ export class ConversationRetrievalService {
       },
     });
     const visible =
-      input.scope === 'current' &&
+      input.scope !== 'historical' &&
       candidate.conversationId === input.runtimeConversationId
         ? this.messagesUpToCurrentMessage(all, input.currentMessageId)
         : all;
@@ -492,7 +540,11 @@ export class ConversationRetrievalService {
       return {
         range: [],
         tail: [],
-        indexedContent: input.scope === 'current' ? '' : undefined,
+        indexedContent:
+          input.scope !== 'historical' &&
+          candidate.conversationId === input.runtimeConversationId
+            ? ''
+            : undefined,
       };
     }
 
@@ -505,12 +557,22 @@ export class ConversationRetrievalService {
     );
     const tail =
       isOpen && endIndex >= startIndex ? visible.slice(indexedEnd) : [];
+    const hasDateFilter =
+      input.dateFrom !== undefined || input.dateTo !== undefined;
+    const resultRange = hasDateFilter
+      ? this.restrictToDateRange(range, input)
+      : range;
 
     return {
-      range,
-      tail,
-      indexedContent:
-        input.scope === 'current'
+      range: resultRange,
+      // For a date-bounded request the complete visible range is rebuilt from
+      // matching messages below. Keeping a separate tail would either duplicate
+      // messages or reintroduce content outside the requested period.
+      tail: hasDateFilter ? [] : tail,
+      indexedContent: hasDateFilter
+        ? resultRange.map((message) => this.formatMessage(message)).join('\n')
+        : input.scope !== 'historical' &&
+            candidate.conversationId === input.runtimeConversationId
           ? indexedMessages
               .map((message) => this.formatMessage(message))
               .join('\n')
@@ -527,7 +589,7 @@ export class ConversationRetrievalService {
       return undefined;
     }
 
-    if (messages.indexedContent !== undefined && messages.range.length === 0) {
+    if (messages.range.length === 0) {
       return undefined;
     }
 
@@ -553,6 +615,45 @@ export class ConversationRetrievalService {
     return {
       content,
       tailContent: tailContent || undefined,
+    };
+  }
+
+  private restrictToDateRange(
+    messages: ConversationRetrievalMessage[],
+    input: NormalizedInput,
+  ): ConversationRetrievalMessage[] {
+    return messages.filter((message) => {
+      if (input.dateFrom && message.createdAt < input.dateFrom) {
+        return false;
+      }
+
+      if (input.dateTo && message.createdAt > input.dateTo) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  private describeTimeRange(
+    messages: ConversationRetrievalMessage[],
+    timeZone: string,
+  ): ConversationRetrievalTimeRange {
+    const first = messages[0];
+    const last = messages[messages.length - 1];
+
+    // expandCandidates only calls this after checking range.length, but the
+    // guard keeps this helper total if it is reused later.
+    if (!first || !last) {
+      throw new ToolRuntimeContextException(
+        'A retrieved result must have at least one source message.',
+      );
+    }
+
+    return {
+      start: formatApplicationDateTime(first.createdAt, timeZone),
+      end: formatApplicationDateTime(last.createdAt, timeZone),
+      timeZone,
     };
   }
 

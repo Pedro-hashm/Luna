@@ -148,8 +148,8 @@ A especificação detalhada da tool está em [conversation-retrieval.md](../orch
 - guardar a versão do modelo de embedding quando a solução evoluir;
 - limitar o contexto recuperado por tokens;
 - deduplicar mensagens repetidas pelo overlap antes de montar o prompt;
-- não pesquisar a conversa atual por padrão quando a intenção for histórico antigo;
-- permitir escopo explícito quando o usuário pedir uma conversa específica;
+- usar `historical` quando a intenção for explicitamente histórico antigo; sem localização explícita, manter `auto` e não restringir a conversa;
+- usar `current_conversation` apenas quando o usuário pedir uma conversa específica;
 - proteger o processo de atualização contra duas mensagens atualizando o mesmo chunk simultaneamente;
 - tratar falhas de embedding sem perder as mensagens já persistidas;
 - reprocessar os chunks quando houver mudança de modelo ou dimensão.

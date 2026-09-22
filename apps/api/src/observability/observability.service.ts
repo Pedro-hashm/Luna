@@ -1,6 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
+import {
+  formatApplicationDate,
+  formatApplicationDateTime,
+} from '../time/application-time';
 import type {
   ContextPart,
   ContextSnapshot,
@@ -13,7 +18,10 @@ import type {
 export class ObservabilityService {
   private readonly logger = new Logger(ObservabilityService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
   async recordTrace(input: RecordTraceInput): Promise<void> {
     try {
@@ -33,8 +41,7 @@ export class ObservabilityService {
           estimatedInputTokens: input.estimatedInputTokens ?? 0,
           estimatedOutputTokens: input.estimatedOutputTokens ?? 0,
           latencyMs: Math.max(0, Math.round(input.latencyMs)),
-          stageDurations: input.stageDurations as
-            Prisma.InputJsonValue | undefined,
+          stageDurations: input.stageDurations,
           contextSnapshot: input.contextSnapshot as
             Prisma.InputJsonValue | undefined,
           errorMessage: input.errorMessage,
@@ -52,6 +59,8 @@ export class ObservabilityService {
     fromValue?: string,
     toValue?: string,
   ): Promise<ObservabilityMetrics> {
+    const settings = await this.settingsService.getApplicationSettings();
+    const timeZone = settings.appTimezone;
     const to = this.parseDate(toValue) ?? new Date();
     const from =
       this.parseDate(fromValue) ??
@@ -93,7 +102,7 @@ export class ObservabilityService {
     >();
 
     for (const trace of traces) {
-      const day = this.dayKey(trace.createdAt);
+      const day = this.dayKey(trace.createdAt, timeZone);
       const daily = dayMap.get(day) ?? {
         requests: 0,
         inputTokens: 0,
@@ -135,9 +144,9 @@ export class ObservabilityService {
 
     return {
       period: {
-        from: from.toISOString(),
-        to: to.toISOString(),
-        timeZone: process.env.APP_TIMEZONE ?? 'America/Sao_Paulo',
+        from: formatApplicationDateTime(from, timeZone),
+        to: formatApplicationDateTime(to, timeZone),
+        timeZone,
       },
       summary: {
         requests: traces.length,
@@ -197,7 +206,7 @@ export class ObservabilityService {
         latencyMs: trace.latencyMs,
         inputTokens: trace.inputTokens,
         outputTokens: trace.outputTokens,
-        createdAt: trace.createdAt.toISOString(),
+        createdAt: formatApplicationDateTime(trace.createdAt, timeZone),
         responseMessageId: trace.responseMessageId,
         errorMessage: trace.errorMessage,
       })),
@@ -207,6 +216,8 @@ export class ObservabilityService {
   async getConversationInspector(
     conversationId: string,
   ): Promise<ConversationInspector> {
+    const settings = await this.settingsService.getApplicationSettings();
+    const timeZone = settings.appTimezone;
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
@@ -256,8 +267,8 @@ export class ObservabilityService {
       conversation: {
         id: conversation.id,
         title: conversation.title ?? 'Nova conversa',
-        createdAt: conversation.createdAt.toISOString(),
-        updatedAt: conversation.updatedAt.toISOString(),
+        createdAt: formatApplicationDateTime(conversation.createdAt, timeZone),
+        updatedAt: formatApplicationDateTime(conversation.updatedAt, timeZone),
       },
       statistics: {
         messageCount: conversation.messages.length,
@@ -284,7 +295,10 @@ export class ObservabilityService {
               id: trace.responseMessage.id,
               role: trace.responseMessage.role,
               content: trace.responseMessage.content,
-              createdAt: trace.responseMessage.createdAt.toISOString(),
+              createdAt: formatApplicationDateTime(
+                trace.responseMessage.createdAt,
+                timeZone,
+              ),
             }
           : null,
         kind: trace.kind,
@@ -301,7 +315,7 @@ export class ObservabilityService {
         stages: this.asNumberMap(trace.stageDurations),
         context: this.asContextSnapshot(trace.contextSnapshot),
         errorMessage: trace.errorMessage,
-        createdAt: trace.createdAt.toISOString(),
+        createdAt: formatApplicationDateTime(trace.createdAt, timeZone),
       })),
     };
   }
@@ -315,13 +329,8 @@ export class ObservabilityService {
     return Number.isNaN(parsed.getTime()) ? undefined : parsed;
   }
 
-  private dayKey(date: Date): string {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: process.env.APP_TIMEZONE ?? 'America/Sao_Paulo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(date);
+  private dayKey(date: Date, timeZone: string): string {
+    return formatApplicationDate(date, timeZone);
   }
 
   private average(values: number[]): number {
@@ -347,7 +356,7 @@ export class ObservabilityService {
       Object.entries(value).filter(
         ([, entry]) => typeof entry === 'number' && Number.isFinite(entry),
       ),
-    ) as Record<string, number>;
+    );
   }
 
   private asObject(value: unknown): Record<string, unknown> | undefined {

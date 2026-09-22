@@ -25,6 +25,7 @@ import type {
 const DEFAULT_FINAL_INSTRUCTIONS =
   'Responda diretamente à mensagem atual usando o contexto imediato disponível. ' +
   'Não afirme ter consultado fontes que não aparecem no contexto.';
+const RETIRED_CURRENT_CONVERSATION_ARGUMENT = 'searchCurrentConversation';
 
 @Injectable()
 export class OrchestratorService {
@@ -406,9 +407,22 @@ export class OrchestratorService {
       );
     }
 
+    const includesRetiredScopeArgument = Object.hasOwn(
+      decision.arguments,
+      RETIRED_CURRENT_CONVERSATION_ARGUMENT,
+    );
+
+    if (includesRetiredScopeArgument) {
+      this.logger.warn(
+        `Ignoring retired ${RETIRED_CURRENT_CONVERSATION_ARGUMENT} argument from Orchestrator; defaulting retrieval scope to auto.`,
+      );
+    }
+
     const semanticArguments = Object.fromEntries(
       Object.entries(decision.arguments).filter(
-        ([key]) => !isRuntimeOwnedToolArgument(key),
+        ([key]) =>
+          !isRuntimeOwnedToolArgument(key) &&
+          key !== RETIRED_CURRENT_CONVERSATION_ARGUMENT,
       ),
     );
 
@@ -424,6 +438,7 @@ export class OrchestratorService {
       ...decision,
       arguments: {
         ...semanticArguments,
+        scope: semanticArguments.scope ?? 'auto',
         // Concatenated chunk content is sufficient for an agentic
         // decision. Structured messages duplicate that content and are
         // intentionally reserved for the explicit test endpoint.
@@ -459,7 +474,7 @@ export class OrchestratorService {
     const runtimeState = {
       currentDateTime: context.currentDateTime,
       iteration,
-      currentConversationExcludedFromRetrieval: true,
+      conversationRetrievalDefaultScope: 'auto',
       maxToolCallsReached: false,
       toolCallsExecuted: toolExecutions.length,
       toolExecutions: toolExecutions.map(toToolExecutionModelView),

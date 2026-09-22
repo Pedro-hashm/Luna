@@ -5,7 +5,7 @@
 O Compose agora fica na raiz do projeto e usa o nome `luna-v2`. Ele sobe:
 
 - PostgreSQL 16 com pgvector;
-- Ollama usando a GPU, com `qwen3:4b-instruct` e `qwen3-embedding:0.6b`;
+- Ollama usando a GPU, com `qwen3:4b-instruct`, `qwen3-embedding:0.6b` e o modelo de teste `qwen3.5:4b`;
 - uma etapa de `prisma migrate deploy`;
 - API NestJS na porta `8000`;
 - frontend Next.js na porta `3000`.
@@ -21,7 +21,9 @@ Copy-Item .env.example .env
 pnpm docker:up
 ```
 
-O V2 reutiliza por padrão o volume `luna_luna-ollama-data` do Luna anterior. O `ollama-init` confirma as duas tags e reutiliza blobs já presentes; ele baixa apenas os modelos ou camadas que estiverem ausentes. Caso seja um ambiente novo, isso representa cerca de 2.5 GB para o Qwen de chat e 639 MB para o embedding. A API espera as migrations e a preparação dos modelos terminarem antes de iniciar.
+O V2 reutiliza por padrão o volume `luna_luna-ollama-data` do Luna anterior. O `ollama-init` confirma as três tags e reutiliza blobs já presentes; ele baixa apenas os modelos ou camadas que estiverem ausentes. Caso seja um ambiente novo, isso representa cerca de 2.5 GB para o Qwen de chat, 639 MB para o embedding e 3.4 GB para o `qwen3.5:4b`. A API espera as migrations e a preparação dos modelos terminarem antes de iniciar.
+
+O provider local do Ollama é iniciado com uma janela de contexto de `8192` tokens. Esse valor é aplicado no servidor Ollama, portanto vale para os combos que usam o provider `ollama-local`; não é uma configuração individual de combo.
 
 O frontend fica em `http://localhost:3000`, a API em `http://localhost:8000` e o Ollama em `http://localhost:11435`.
 
@@ -52,4 +54,4 @@ Os novos containers ficam nomeados como `luna-v2-postgres`, `luna-v2-ollama`, `l
 
 A API continua usando o combo `paid-general`. Dentro do Docker, ela alcança o OmniRoute do host por `http://host.docker.internal:20128/v1`.
 
-Para fazer um combo local do OmniRoute usar o Ollama deste Compose, configure o provider do OmniRoute no host para `http://localhost:11435` e aponte-o para `qwen3:4b-instruct`.
+Para fazer um combo local do OmniRoute usar o Ollama deste Compose, configure o provider do OmniRoute no host para `http://localhost:11435` e aponte-o para `qwen3:4b-instruct`. Para usar o novo modelo, faça o mesmo apontando o combo desejado para `qwen3.5:4b`.

@@ -1,31 +1,31 @@
-import type { MessageRole } from "@prisma/client";
+import type { MessageRole } from '@prisma/client';
 
 export interface ConversationMessageResponse {
-    id: string;
-    role: MessageRole;
-    content: string;
-    model: string | null;
-    createdAt: Date;
+  id: string;
+  role: MessageRole;
+  content: string;
+  model: string | null;
+  createdAt: string;
 }
 
 export interface SendMessageResponse {
-    conversationId: string;
-    messages: ConversationMessageResponse[];
+  conversationId: string;
+  messages: ConversationMessageResponse[];
 }
 
 export interface ConversationListItemResponse {
-    id: string;
-    title: string;
-    preview: string;
-    messageCount: number;
-    createdAt: Date;
-    updatedAt: Date;
+  id: string;
+  title: string;
+  preview: string;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ConversationDetailResponse {
-    id: string;
-    title: string;
-    createdAt: Date;
-    updatedAt: Date;
-    messages: ConversationMessageResponse[];
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ConversationMessageResponse[];
 }
