@@ -67,6 +67,24 @@ services:
       - ollama_data:/root/.ollama
     restart: "no"
 
+  reranker:
+    image: luna-v2-reranker:local
+    container_name: luna-v2-reranker
+    build:
+      context: .
+      dockerfile: apps/reranker/Dockerfile
+    environment:
+      RERANKER_MODEL_DIR: /models
+      QWEN_RERANKER_PORT: "8201"
+    volumes:
+      - reranker_data:/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   migrate:
     image: luna-v2-migrate:local
     container_name: luna-v2-migrate
@@ -96,12 +114,15 @@ services:
       ORCHESTRATOR_COMBO: ${ORCHESTRATOR_COMBO:-local-general}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+      RETRIEVAL_RERANKER_URL: http://reranker:8200
       OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-http://host.docker.internal:20128/v1}
     depends_on:
       migrate:
         condition: service_completed_successfully
       ollama-init:
         condition: service_completed_successfully
+      reranker:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -147,3 +168,5 @@ volumes:
     # can reuse already-downloaded blobs and manifests instead of pulling them again.
     external: true
     name: ${LUNA_V2_OLLAMA_VOLUME:-luna_luna-ollama-data}
+  reranker_data:
+    name: luna-v2-reranker-models

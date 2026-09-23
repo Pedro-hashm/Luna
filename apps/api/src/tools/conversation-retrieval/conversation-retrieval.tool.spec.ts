@@ -64,4 +64,62 @@ describe('ConversationRetrievalTool', () => {
       tool.execute({ query: 'nebula', scope: 'unknown' }, context),
     ).rejects.toBeInstanceOf(ToolArgumentException);
   });
+
+  it('normalizes null date bounds to omitted optional filters', async () => {
+    const registry = { register: jest.fn() };
+    const retrievalService = {
+      retrieve: jest.fn().mockResolvedValue({
+        query: 'Nebula 47 data dia conversa',
+        results: [],
+      }),
+    };
+    const tool = new ConversationRetrievalTool(
+      registry as never,
+      retrievalService as never,
+    );
+
+    expect(tool.inputSchema.properties.dateFrom.type).toEqual([
+      'string',
+      'null',
+    ]);
+    expect(tool.inputSchema.properties.dateTo.type).toEqual([
+      'string',
+      'null',
+    ]);
+
+    await tool.execute(
+      {
+        query: 'Nebula 47 data dia conversa',
+        scope: 'auto',
+        dateTo: null,
+        dateFrom: null,
+        includeMessages: false,
+        maxContextTokens: 5000,
+      },
+      context,
+    );
+
+    expect(retrievalService.retrieve).toHaveBeenCalledWith(
+      {
+        query: 'Nebula 47 data dia conversa',
+        scope: 'auto',
+        dateFrom: undefined,
+        dateTo: undefined,
+        includeMessages: false,
+        maxContextTokens: 5000,
+      },
+      context,
+    );
+  });
+
+  it('still rejects non-string date bounds', async () => {
+    const tool = new ConversationRetrievalTool(
+      { register: jest.fn() } as never,
+      { retrieve: jest.fn() } as never,
+    );
+
+    await expect(
+      tool.execute({ query: 'nebula', dateFrom: 20260923 }, context),
+    ).rejects.toBeInstanceOf(ToolArgumentException);
+  });
 });

@@ -51,4 +51,37 @@ export type ConversationRetrievalItem = {
 export type ConversationRetrievalResult = {
   query: string | null;
   results: ConversationRetrievalItem[];
+  /** Internal trace payload. ToolsService removes this before model-facing output. */
+  __retrievalDiagnostics?: import('../../../retrieval/retrieval.types').RetrievalDiagnostics;
+  /** Conversation adapter decisions; kept out of the model-facing tool result. */
+  __conversationDiagnostics?: ConversationRetrievalDiagnostics;
+};
+
+export type ConversationRetrievalDiagnostics = {
+  scope: ConversationRetrievalScope;
+  dateFrom: string | null;
+  dateTo: string | null;
+  maxContextTokens: number;
+  includeMessages: boolean;
+  stages: {
+    messageExpansion: { count: number; latencyMs: number };
+    resultAssembly: { count: number; latencyMs: number };
+  };
+  counts: {
+    retrievalCandidates: number;
+    returnedResults: number;
+    excludedCandidates: number;
+  };
+  candidates: Array<{
+    chunkId: string;
+    outcome: 'returned' | 'excluded';
+    reason?:
+      | 'outside_current_message_visibility'
+      | 'source_message_missing'
+      | 'no_message_in_date_range'
+      | 'context_budget';
+    sourceMessageCount: number;
+    returnedMessageCount: number;
+    resultTokens?: number;
+  }>;
 };

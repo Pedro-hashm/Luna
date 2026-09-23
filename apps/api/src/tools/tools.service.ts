@@ -43,6 +43,11 @@ export class ToolsService {
 
     try {
       const result = await this.toolRegistry.execute(tool, input, context);
+      const retrievalDiagnostics = result.__retrievalDiagnostics;
+      const conversationDiagnostics = result.__conversationDiagnostics;
+      const modelFacingResult = { ...result };
+      delete modelFacingResult.__retrievalDiagnostics;
+      delete modelFacingResult.__conversationDiagnostics;
       const resultText = result.results
         .map((item) => `${item.content}\n${item.tailContent ?? ''}`)
         .join('\n');
@@ -63,7 +68,11 @@ export class ToolsService {
         estimatedInputTokens,
         estimatedOutputTokens,
         latencyMs: Date.now() - startedAtMs,
-        stageDurations: { execution: Date.now() - startedAtMs },
+        stageDurations: {
+          execution: Date.now() - startedAtMs,
+          ...this.retrievalStageDurations(retrievalDiagnostics),
+          ...this.conversationStageDurations(conversationDiagnostics),
+        },
         contextSnapshot: {
           immediate: {
             messages: context.messages,
@@ -78,8 +87,12 @@ export class ToolsService {
             items: [
               {
                 name: tool,
+                status: 'success',
                 input,
+                result: modelFacingResult,
                 resultCount: result.results.length,
+                retrieval: retrievalDiagnostics,
+                conversationRetrieval: conversationDiagnostics,
               },
             ],
             tokens: estimatedOutputTokens,
@@ -91,8 +104,9 @@ export class ToolsService {
         completedAt: new Date(),
       });
 
-      return { tool, context, result };
+      return { tool, context, result: modelFacingResult };
     } catch (error) {
+      const retrievalDiagnostics = this.retrievalDiagnosticsFromError(error);
       await this.observabilityService.recordTrace({
         requestId,
         conversationId: context.conversationId,
@@ -103,13 +117,27 @@ export class ToolsService {
         totalTokens: estimatedInputTokens,
         estimatedInputTokens,
         latencyMs: Date.now() - startedAtMs,
-        stageDurations: { execution: Date.now() - startedAtMs },
+        stageDurations: {
+          execution: Date.now() - startedAtMs,
+          ...this.retrievalStageDurations(retrievalDiagnostics),
+        },
         contextSnapshot: {
           immediate: {
             messages: context.messages,
             tokens: estimatedInputTokens,
           },
-          tools: { items: [{ name: tool, input }], tokens: 0 },
+          tools: {
+          items: [
+            {
+              name: tool,
+              status: this.traceStatus(error),
+              input,
+              error: error instanceof Error ? error.message : 'unknown error',
+              retrieval: retrievalDiagnostics,
+            },
+          ],
+            tokens: 0,
+          },
           totalTokens: estimatedInputTokens,
         },
         errorMessage: error instanceof Error ? error.message : 'unknown error',
@@ -118,6 +146,43 @@ export class ToolsService {
       });
       throw error;
     }
+  }
+
+  private retrievalStageDurations(
+    diagnostics:
+      | NonNullable<ExecuteToolResponse['result']['__retrievalDiagnostics']>
+      | undefined,
+  ): Record<string, number> {
+    if (!diagnostics?.stages) return {};
+    return Object.fromEntries(
+      Object.entries(diagnostics.stages).map(([stage, value]) => [
+        `retrieval.${stage}`,
+        value.latencyMs,
+      ]),
+    );
+  }
+
+  private conversationStageDurations(
+    diagnostics:
+      | NonNullable<ExecuteToolResponse['result']['__conversationDiagnostics']>
+      | undefined,
+  ): Record<string, number> {
+    if (!diagnostics?.stages) return {};
+    return Object.fromEntries(
+      Object.entries(diagnostics.stages).map(([stage, value]) => [
+        `conversation_retrieval.${stage}`,
+        value.latencyMs,
+      ]),
+    );
+  }
+
+  private retrievalDiagnosticsFromError(error: unknown) {
+    if (!error || typeof error !== 'object' || !('retrievalDiagnostics' in error)) {
+      return undefined;
+    }
+    return error.retrievalDiagnostics as NonNullable<
+      ExecuteToolResponse['result']['__retrievalDiagnostics']
+    >;
   }
 
   private async normalizeContext(

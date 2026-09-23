@@ -29,14 +29,14 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
           "Consulta semântica opcional, por exemplo 'jogos' ou 'projeto Luna'.",
       },
       dateFrom: {
-        type: 'string',
+        type: ['string', 'null'] as const,
         description:
-          'Data ISO opcional de início; YYYY-MM-DD usa o fuso da aplicação.',
+          'Data ISO opcional de início; use null ou omita quando não houver limite. YYYY-MM-DD usa o fuso da aplicação.',
       },
       dateTo: {
-        type: 'string',
+        type: ['string', 'null'] as const,
         description:
-          'Data ISO opcional de fim; YYYY-MM-DD usa o fuso da aplicação.',
+          'Data ISO opcional de fim; use null ou omita quando não houver limite. YYYY-MM-DD usa o fuso da aplicação.',
       },
       scope: {
         type: 'string',
@@ -97,8 +97,8 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
 
     return {
       query: this.optionalString(input.query, 'query'),
-      dateFrom: this.optionalString(input.dateFrom, 'dateFrom'),
-      dateTo: this.optionalString(input.dateTo, 'dateTo'),
+      dateFrom: this.optionalDateString(input.dateFrom, 'dateFrom'),
+      dateTo: this.optionalDateString(input.dateTo, 'dateTo'),
       scope: this.optionalScope(input.scope),
       maxContextTokens: this.optionalInteger(
         input.maxContextTokens,
@@ -118,6 +118,24 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
 
     if (typeof value !== 'string') {
       throw new ToolArgumentException(field, `${field} must be a string`);
+    }
+
+    return value;
+  }
+
+  private optionalDateString(
+    value: unknown,
+    field: string,
+  ): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+
+    if (typeof value !== 'string') {
+      throw new ToolArgumentException(
+        field,
+        `${field} must be a string or null`,
+      );
     }
 
     return value;

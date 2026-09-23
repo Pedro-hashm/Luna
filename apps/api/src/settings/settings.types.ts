@@ -1,3 +1,5 @@
+import type { RetrievalStrategy, RerankerModel } from "../retrieval/retrieval.types";
+
 export type ApplicationSettingsResponse = {
     llmCombo: string;
     orchestratorCombo: string;
@@ -13,6 +15,17 @@ export type ApplicationSettingsResponse = {
     retrievalDefaultMaxContextTokens: number;
     retrievalMaxContextTokens: number;
     retrievalIncludeMessages: boolean;
+    retrievalStrategy: RetrievalStrategy;
+    retrievalVectorTopK: number;
+    retrievalLexicalTopK: number;
+    retrievalRrfK: number;
+    retrievalCandidatePoolTopK: number;
+    retrievalRerankerEnabled: boolean;
+    retrievalRerankerModel: RerankerModel;
+    retrievalRerankerTopK: number;
+    retrievalRerankerThreshold: number;
+    retrievalDeduplicationEnabled: boolean;
+    retrievalDeduplicationThreshold: number;
 };
 
 export type ConversationChunkSettingsResponse = {

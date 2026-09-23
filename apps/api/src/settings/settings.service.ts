@@ -7,6 +7,7 @@ import type {
     SettingsResponse,
     UpdateSettingsRequest,
 } from "./settings.types";
+import { RERANKER_MODELS } from "../retrieval/retrieval.types";
 
 @Injectable()
 export class SettingsService {
@@ -196,6 +197,64 @@ export class SettingsService {
             data.retrievalIncludeMessages = input.retrievalIncludeMessages;
         }
 
+        if (input.retrievalStrategy !== undefined) {
+            if (!['hybrid', 'vector-only', 'lexical-only'].includes(input.retrievalStrategy)) {
+                throw new BadRequestException(
+                    "retrievalStrategy must be hybrid, vector-only, or lexical-only",
+                );
+            }
+            data.retrievalStrategy = input.retrievalStrategy;
+        }
+
+        if (input.retrievalVectorTopK !== undefined) {
+            data.retrievalVectorTopK = this.requiredInteger(input.retrievalVectorTopK, "retrievalVectorTopK", 1, 200);
+        }
+
+        if (input.retrievalLexicalTopK !== undefined) {
+            data.retrievalLexicalTopK = this.requiredInteger(input.retrievalLexicalTopK, "retrievalLexicalTopK", 1, 200);
+        }
+
+        if (input.retrievalRrfK !== undefined) {
+            data.retrievalRrfK = this.requiredInteger(input.retrievalRrfK, "retrievalRrfK", 1, 1000);
+        }
+
+        if (input.retrievalCandidatePoolTopK !== undefined) {
+            data.retrievalCandidatePoolTopK = this.requiredInteger(input.retrievalCandidatePoolTopK, "retrievalCandidatePoolTopK", 1, 300);
+        }
+
+        if (input.retrievalRerankerEnabled !== undefined) {
+            if (typeof input.retrievalRerankerEnabled !== "boolean") {
+                throw new BadRequestException("retrievalRerankerEnabled must be a boolean");
+            }
+            data.retrievalRerankerEnabled = input.retrievalRerankerEnabled;
+        }
+
+        if (input.retrievalRerankerModel !== undefined) {
+            if (!RERANKER_MODELS.includes(input.retrievalRerankerModel)) {
+                throw new BadRequestException("retrievalRerankerModel is not supported");
+            }
+            data.retrievalRerankerModel = input.retrievalRerankerModel;
+        }
+
+        if (input.retrievalRerankerTopK !== undefined) {
+            data.retrievalRerankerTopK = this.requiredInteger(input.retrievalRerankerTopK, "retrievalRerankerTopK", 1, 300);
+        }
+
+        if (input.retrievalRerankerThreshold !== undefined) {
+            data.retrievalRerankerThreshold = this.optionalNumber(input.retrievalRerankerThreshold, "retrievalRerankerThreshold", -100, 100) as number;
+        }
+
+        if (input.retrievalDeduplicationEnabled !== undefined) {
+            if (typeof input.retrievalDeduplicationEnabled !== "boolean") {
+                throw new BadRequestException("retrievalDeduplicationEnabled must be a boolean");
+            }
+            data.retrievalDeduplicationEnabled = input.retrievalDeduplicationEnabled;
+        }
+
+        if (input.retrievalDeduplicationThreshold !== undefined) {
+            data.retrievalDeduplicationThreshold = this.optionalNumber(input.retrievalDeduplicationThreshold, "retrievalDeduplicationThreshold", 0, 1) as number;
+        }
+
         return data;
     }
 
@@ -375,6 +434,17 @@ export class SettingsService {
                 settings.retrievalDefaultMaxContextTokens,
             retrievalMaxContextTokens: settings.retrievalMaxContextTokens,
             retrievalIncludeMessages: settings.retrievalIncludeMessages,
+            retrievalStrategy: settings.retrievalStrategy as ApplicationSettingsResponse["retrievalStrategy"],
+            retrievalVectorTopK: settings.retrievalVectorTopK,
+            retrievalLexicalTopK: settings.retrievalLexicalTopK,
+            retrievalRrfK: settings.retrievalRrfK,
+            retrievalCandidatePoolTopK: settings.retrievalCandidatePoolTopK,
+            retrievalRerankerEnabled: settings.retrievalRerankerEnabled,
+            retrievalRerankerModel: settings.retrievalRerankerModel as ApplicationSettingsResponse["retrievalRerankerModel"],
+            retrievalRerankerTopK: settings.retrievalRerankerTopK,
+            retrievalRerankerThreshold: settings.retrievalRerankerThreshold,
+            retrievalDeduplicationEnabled: settings.retrievalDeduplicationEnabled,
+            retrievalDeduplicationThreshold: settings.retrievalDeduplicationThreshold,
         };
     }
 }

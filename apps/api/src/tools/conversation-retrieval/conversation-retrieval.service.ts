@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConversationChunkStatus, Prisma } from '@prisma/client';
-import { ConversationEmbeddingService } from '../../conversation/conversation-embedding.service';
+import { ConversationChunkStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RetrievalEngine } from '../../retrieval/retrieval-engine.service';
+import type { RetrievalConfig, RetrievalCandidate } from '../../retrieval/retrieval.types';
 import { SettingsService } from '../../settings/settings.service';
 import { formatApplicationDateTime } from '../../time/application-time';
 import {
@@ -32,17 +33,6 @@ type NormalizedInput = {
   timeZone: string;
 };
 
-type RawChunkCandidate = {
-  id: string;
-  conversation_id: string;
-  content: string;
-  status: 'open' | 'closed';
-  token_count: number;
-  start_message_id: string;
-  end_message_id: string;
-  score: number;
-};
-
 type ChunkCandidate = {
   id: string;
   conversationId: string;
@@ -58,6 +48,10 @@ type CandidateMessages = {
   range: ConversationRetrievalMessage[];
   tail: ConversationRetrievalMessage[];
   indexedContent?: string;
+  exclusionReason?:
+    | 'outside_current_message_visibility'
+    | 'source_message_missing'
+    | 'no_message_in_date_range';
 };
 
 @Injectable()
@@ -66,8 +60,8 @@ export class ConversationRetrievalService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly embeddingService: ConversationEmbeddingService,
     private readonly settingsService: SettingsService,
+    private readonly retrievalEngine: RetrievalEngine,
   ) {}
 
   async retrieve(
@@ -89,25 +83,135 @@ export class ConversationRetrievalService {
       );
     }
 
-    const candidates = normalized.query
-      ? await this.findSemanticCandidates(normalized)
-      : await this.findDirectCandidates(normalized);
+    const retrievalConfig = this.retrievalConfiguration(applicationSettings);
+    const retrieval = await this.retrievalEngine.retrieve(
+      {
+        query: normalized.query,
+        filters: this.toRetrievalFilters(normalized),
+        limit: normalized.topK,
+        maxContextTokens: normalized.maxContextTokens,
+      },
+      retrievalConfig,
+    );
+    const candidates = retrieval.candidates.map((candidate) =>
+      this.toChunkCandidate(candidate),
+    );
 
-    const results = await this.expandCandidates(candidates, normalized);
+    const expansion = await this.expandCandidates(candidates, normalized);
+    const results = expansion.results;
+    const conversationDiagnostics = {
+      scope: normalized.scope,
+      dateFrom: normalized.dateFrom?.toISOString() ?? null,
+      dateTo: normalized.dateTo?.toISOString() ?? null,
+      maxContextTokens: normalized.maxContextTokens,
+      includeMessages: normalized.includeMessages,
+      stages: {
+        messageExpansion: expansion.messageExpansion,
+        resultAssembly: expansion.resultAssembly,
+      },
+      counts: {
+        retrievalCandidates: candidates.length,
+        returnedResults: results.length,
+        excludedCandidates: expansion.candidates.filter(
+          (candidate) => candidate.outcome === 'excluded',
+        ).length,
+      },
+      candidates: expansion.candidates,
+    };
 
     this.logger.log(
       `Retrieved ${results.length} conversation chunk(s) using ${
-        normalized.query ? 'semantic' : 'direct'
+        normalized.query ? retrievalConfig.strategy : 'filters-only'
       } strategy (query=${JSON.stringify(normalized.query ?? null)}, ` +
         `dateFrom=${normalized.dateFrom?.toISOString() ?? 'null'}, ` +
         `dateTo=${normalized.dateTo?.toISOString() ?? 'null'}, ` +
         `scope=${normalized.scope}, ` +
-        `timeZone=${normalized.timeZone})`,
+        `timeZone=${normalized.timeZone}, ` +
+        `vectorTopK=${retrievalConfig.vectorTopK}, ` +
+        `lexicalTopK=${retrievalConfig.lexicalTopK}, ` +
+        `reranker=${retrievalConfig.rerankerEnabled ? retrievalConfig.rerankerModel : 'disabled'})`,
     );
 
-    return {
+    const result: ConversationRetrievalResult = {
       query: normalized.query ?? null,
       results,
+    };
+    Object.defineProperty(result, '__retrievalDiagnostics', {
+      value: retrieval.diagnostics,
+      enumerable: false,
+    });
+    Object.defineProperty(result, '__conversationDiagnostics', {
+      value: conversationDiagnostics,
+      enumerable: false,
+    });
+    return result;
+  }
+
+  private retrievalConfiguration(settings: {
+    retrievalStrategy: string;
+    retrievalVectorTopK: number;
+    retrievalLexicalTopK: number;
+    retrievalRrfK: number;
+    retrievalCandidatePoolTopK: number;
+    retrievalRerankerEnabled: boolean;
+    retrievalRerankerModel: string;
+    retrievalRerankerTopK: number;
+    retrievalRerankerThreshold: number;
+    retrievalDeduplicationEnabled: boolean;
+    retrievalDeduplicationThreshold: number;
+  }): RetrievalConfig {
+    return {
+      strategy: settings.retrievalStrategy as RetrievalConfig['strategy'],
+      vectorTopK: settings.retrievalVectorTopK,
+      lexicalTopK: settings.retrievalLexicalTopK,
+      rrfK: settings.retrievalRrfK,
+      candidatePoolTopK: settings.retrievalCandidatePoolTopK,
+      rerankerEnabled: settings.retrievalRerankerEnabled,
+      rerankerModel: settings.retrievalRerankerModel as RetrievalConfig['rerankerModel'],
+      rerankerTopK: settings.retrievalRerankerTopK,
+      rerankerThreshold: settings.retrievalRerankerThreshold,
+      deduplicationEnabled: settings.retrievalDeduplicationEnabled,
+      deduplicationThreshold: settings.retrievalDeduplicationThreshold,
+    };
+  }
+
+  private toRetrievalFilters(input: NormalizedInput): Record<string, unknown> {
+    return {
+      includeConversationId:
+        input.scope === 'current_conversation'
+          ? input.runtimeConversationId
+          : undefined,
+      excludeConversationId:
+        input.scope === 'historical'
+          ? input.runtimeConversationId
+          : undefined,
+      runtimeConversationId:
+        input.scope !== 'historical' ? input.runtimeConversationId : undefined,
+      currentMessageId:
+        input.scope !== 'historical' ? input.currentMessageId : undefined,
+      currentMessageCreatedAt:
+        input.scope !== 'historical' ? input.currentMessageCreatedAt : undefined,
+      dateFrom: input.dateFrom,
+      dateTo: input.dateTo,
+    };
+  }
+
+  private toChunkCandidate(candidate: RetrievalCandidate): ChunkCandidate {
+    const metadata = candidate.metadata;
+    return {
+      id: candidate.id,
+      conversationId: String(metadata.conversationId),
+      content: candidate.content,
+      status: metadata.status as ConversationChunkStatus,
+      tokenCount: Number(metadata.tokenCount),
+      startMessageId: String(metadata.startMessageId),
+      endMessageId: String(metadata.endMessageId),
+      score:
+        candidate.rerankerScore ??
+        candidate.rrfScore ??
+        candidate.vectorScore ??
+        candidate.lexicalScore ??
+        1,
     };
   }
 
@@ -245,222 +349,77 @@ export class ConversationRetrievalService {
     };
   }
 
-  private async findSemanticCandidates(
-    input: NormalizedInput,
-  ): Promise<ChunkCandidate[]> {
-    const settings = await this.prisma.conversationChunkSettings.upsert({
-      where: { id: 1 },
-      update: {},
-      create: { id: 1 },
-    });
-    const vector = await this.embeddingService.embed(
-      input.query ?? '',
-      settings.embeddingModel,
-      settings.embeddingDimensions,
-    );
-    const vectorLiteral = this.embeddingService.toVectorLiteral(vector);
-    const filters = this.buildSqlFilters(input, true);
-
-    const rows = await this.prisma.$queryRaw<RawChunkCandidate[]>(
-      Prisma.sql`
-                SELECT
-                    cc."id",
-                    cc."conversation_id",
-                    cc."content",
-                    cc."status"::text AS "status",
-                    cc."token_count",
-                    cc."start_message_id",
-                    cc."end_message_id",
-                    1 - (cc."embedding" <=> ${vectorLiteral}::vector) AS "score"
-                FROM "conversation_chunks" cc
-                WHERE ${Prisma.join(filters, ' AND ')}
-                ORDER BY cc."embedding" <=> ${vectorLiteral}::vector ASC
-                LIMIT ${input.topK}
-            `,
-    );
-
-    return rows.map((row) => ({
-      id: row.id,
-      conversationId: row.conversation_id,
-      content: row.content,
-      status: row.status,
-      tokenCount: Number(row.token_count),
-      startMessageId: row.start_message_id,
-      endMessageId: row.end_message_id,
-      score: Number(row.score),
-    }));
-  }
-
-  private async findDirectCandidates(
-    input: NormalizedInput,
-  ): Promise<ChunkCandidate[]> {
-    const dateFilter: Prisma.MessageWhereInput = {};
-
-    if (input.dateFrom) {
-      dateFilter.createdAt = { gte: input.dateFrom };
-    }
-
-    if (input.dateTo) {
-      dateFilter.createdAt = {
-        ...(dateFilter.createdAt as Prisma.DateTimeFilter | undefined),
-        lte: input.dateTo,
-      };
-    }
-
-    const currentConversationStartFilter: Prisma.MessageWhereInput | undefined =
-      input.currentMessageId && input.currentMessageCreatedAt
-        ? {
-            OR: [
-              { createdAt: { lt: input.currentMessageCreatedAt } },
-              {
-                createdAt: input.currentMessageCreatedAt,
-                id: { lte: input.currentMessageId },
-              },
-            ],
-          }
-        : undefined;
-    const where: Prisma.ConversationChunkWhereInput = {
-      conversationId:
-        input.scope === 'current_conversation'
-          ? input.runtimeConversationId
-          : input.scope === 'historical' && input.runtimeConversationId
-            ? { not: input.runtimeConversationId }
-            : undefined,
-      conversation:
-        input.dateFrom || input.dateTo
-          ? { messages: { some: dateFilter } }
-          : undefined,
-      startMessage:
-        input.scope === 'current_conversation'
-          ? currentConversationStartFilter
-          : undefined,
-      AND:
-        input.scope === 'auto' &&
-        input.runtimeConversationId &&
-        currentConversationStartFilter
-          ? [
-              {
-                OR: [
-                  { conversationId: { not: input.runtimeConversationId } },
-                  {
-                    conversationId: input.runtimeConversationId,
-                    startMessage: currentConversationStartFilter,
-                  },
-                ],
-              },
-            ]
-          : undefined,
-    };
-
-    const chunks = await this.prisma.conversationChunk.findMany({
-      where,
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      take: input.topK,
-      select: {
-        id: true,
-        conversationId: true,
-        content: true,
-        status: true,
-        tokenCount: true,
-        startMessageId: true,
-        endMessageId: true,
-      },
-    });
-
-    return chunks.map((chunk) => ({
-      ...chunk,
-      score: 1,
-    }));
-  }
-
-  private buildSqlFilters(
-    input: NormalizedInput,
-    requireEmbedding: boolean,
-  ): Prisma.Sql[] {
-    const filters: Prisma.Sql[] = [];
-
-    if (requireEmbedding) {
-      filters.push(Prisma.sql`cc."embedding" IS NOT NULL`);
-    }
-
-    if (input.scope === 'current_conversation' && input.runtimeConversationId) {
-      filters.push(
-        Prisma.sql`cc."conversation_id" = ${input.runtimeConversationId}::uuid`,
-      );
-    } else if (input.scope === 'historical' && input.runtimeConversationId) {
-      filters.push(
-        Prisma.sql`cc."conversation_id" <> ${input.runtimeConversationId}::uuid`,
-      );
-    }
-
-    if (
-      input.scope !== 'historical' &&
-      input.currentMessageId &&
-      input.currentMessageCreatedAt
-    ) {
-      const currentConversationCutoff = Prisma.sql`
-        EXISTS (
-          SELECT 1
-          FROM "messages" chunk_start_message
-          WHERE chunk_start_message."id" = cc."start_message_id"
-            AND (
-              chunk_start_message."created_at" < ${input.currentMessageCreatedAt}
-              OR (
-                chunk_start_message."created_at" = ${input.currentMessageCreatedAt}
-                AND chunk_start_message."id" <= ${input.currentMessageId}::uuid
-              )
-            )
-        )
-      `;
-
-      filters.push(
-        input.scope === 'current_conversation'
-          ? currentConversationCutoff
-          : Prisma.sql`(
-              cc."conversation_id" <> ${input.runtimeConversationId}::uuid
-              OR ${currentConversationCutoff}
-            )`,
-      );
-    }
-
-    if (input.dateFrom || input.dateTo) {
-      filters.push(Prisma.sql`
-                EXISTS (
-                    SELECT 1
-                    FROM "messages" date_range_message
-                    WHERE date_range_message."conversation_id" = cc."conversation_id"
-                      ${input.dateFrom ? Prisma.sql`AND date_range_message."created_at" >= ${input.dateFrom}` : Prisma.empty}
-                      ${input.dateTo ? Prisma.sql`AND date_range_message."created_at" <= ${input.dateTo}` : Prisma.empty}
-                )
-            `);
-    }
-
-    return filters;
-  }
-
   private async expandCandidates(
     candidates: ChunkCandidate[],
     input: NormalizedInput,
-  ): Promise<ConversationRetrievalItem[]> {
+  ): Promise<{
+    results: ConversationRetrievalItem[];
+    messageExpansion: { count: number; latencyMs: number };
+    resultAssembly: { count: number; latencyMs: number };
+    candidates: Array<{
+      chunkId: string;
+      outcome: 'returned' | 'excluded';
+      reason?:
+        | 'outside_current_message_visibility'
+        | 'source_message_missing'
+        | 'no_message_in_date_range'
+        | 'context_budget';
+      sourceMessageCount: number;
+      returnedMessageCount: number;
+      resultTokens?: number;
+    }>;
+  }> {
+    const expansionStartedAt = Date.now();
     const expanded = await Promise.all(
       candidates.map(async (candidate) => ({
         candidate,
         messages: await this.loadCandidateMessages(candidate, input),
       })),
     );
+    const messageExpansion = {
+      count: expanded.length,
+      latencyMs: Date.now() - expansionStartedAt,
+    };
+    const assemblyStartedAt = Date.now();
     const results: ConversationRetrievalItem[] = [];
+    const candidateDiagnostics: Array<{
+      chunkId: string;
+      outcome: 'returned' | 'excluded';
+      reason?:
+        | 'outside_current_message_visibility'
+        | 'source_message_missing'
+        | 'no_message_in_date_range'
+        | 'context_budget';
+      sourceMessageCount: number;
+      returnedMessageCount: number;
+      resultTokens?: number;
+    }> = [];
     const seenMessageIds = new Set<string>();
     let remainingTokens = input.maxContextTokens;
 
     for (const { candidate, messages } of expanded) {
       if (remainingTokens <= 0) {
-        break;
+        candidateDiagnostics.push({
+          chunkId: candidate.id,
+          outcome: 'excluded',
+          reason: 'context_budget',
+          sourceMessageCount: messages.range.length,
+          returnedMessageCount: 0,
+        });
+        continue;
       }
 
       // A chunk can be selected from a conversation that has a matching date,
       // while this particular chunk has no message inside that window. Never
       // return its indexed text as evidence for a date-bounded retrieval.
       if (messages.range.length === 0) {
+        candidateDiagnostics.push({
+          chunkId: candidate.id,
+          outcome: 'excluded',
+          reason: messages.exclusionReason ?? 'source_message_missing',
+          sourceMessageCount: 0,
+          returnedMessageCount: 0,
+        });
         continue;
       }
 
@@ -471,12 +430,20 @@ export class ConversationRetrievalService {
       );
 
       if (!rendered) {
+        candidateDiagnostics.push({
+          chunkId: candidate.id,
+          outcome: 'excluded',
+          reason: 'context_budget',
+          sourceMessageCount: messages.range.length,
+          returnedMessageCount: 0,
+        });
         continue;
       }
 
-      remainingTokens -= this.estimateTokens(
+      const resultTokens = this.estimateTokens(
         [rendered.content, rendered.tailContent].filter(Boolean).join('\n'),
       );
+      remainingTokens -= resultTokens;
 
       const result: ConversationRetrievalItem = {
         conversationId: candidate.conversationId,
@@ -492,6 +459,7 @@ export class ConversationRetrievalService {
       };
 
       if (input.includeMessages) {
+        let returnedMessageCount = 0;
         result.messages = messages.range
           .filter((message) => {
             if (seenMessageIds.has(message.id)) {
@@ -499,15 +467,39 @@ export class ConversationRetrievalService {
             }
 
             seenMessageIds.add(message.id);
+            returnedMessageCount += 1;
             return true;
           })
           .map((message) => ({ ...message }));
+        candidateDiagnostics.push({
+          chunkId: candidate.id,
+          outcome: 'returned',
+          sourceMessageCount: messages.range.length,
+          returnedMessageCount,
+          resultTokens,
+        });
+      } else {
+        candidateDiagnostics.push({
+          chunkId: candidate.id,
+          outcome: 'returned',
+          sourceMessageCount: messages.range.length,
+          returnedMessageCount: 0,
+          resultTokens,
+        });
       }
 
       results.push(result);
     }
 
-    return results;
+    return {
+      results,
+      messageExpansion,
+      resultAssembly: {
+        count: results.length,
+        latencyMs: Date.now() - assemblyStartedAt,
+      },
+      candidates: candidateDiagnostics,
+    };
   }
 
   private async loadCandidateMessages(
@@ -540,6 +532,11 @@ export class ConversationRetrievalService {
       return {
         range: [],
         tail: [],
+        exclusionReason:
+          input.scope !== 'historical' &&
+          candidate.conversationId === input.runtimeConversationId
+            ? 'outside_current_message_visibility'
+            : 'source_message_missing',
         indexedContent:
           input.scope !== 'historical' &&
           candidate.conversationId === input.runtimeConversationId
@@ -565,6 +562,10 @@ export class ConversationRetrievalService {
 
     return {
       range: resultRange,
+      exclusionReason:
+        resultRange.length === 0 && hasDateFilter
+          ? 'no_message_in_date_range'
+          : undefined,
       // For a date-bounded request the complete visible range is rebuilt from
       // matching messages below. Keeping a separate tail would either duplicate
       // messages or reintroduce content outside the requested period.
