@@ -37,7 +37,7 @@ export class ContextManagerService {
         return selected.reverse();
     }
 
-    estimateMessagesTokens(messages: Array<Pick<RuntimeMessage, "role" | "content">>): number {
+    estimateMessagesTokens(messages: Array<Pick<RuntimeMessage, "role" | "content"> & Pick<RuntimeMessage, "evidence">>): number {
         return messages.reduce(
             (total, message) => total + this.estimateMessageTokens(message),
             0,
@@ -45,9 +45,12 @@ export class ContextManagerService {
     }
 
     estimateMessageTokens(
-        message: Pick<RuntimeMessage, "role" | "content">,
+        message: Pick<RuntimeMessage, "role" | "content"> & Pick<RuntimeMessage, "evidence">,
     ): number {
-        return this.estimateTokens(`${message.role}: ${message.content}`);
+        const evidence = message.role === "assistant" && message.evidence?.length
+            ? `\nEvidence: ${JSON.stringify(message.evidence)}`
+            : "";
+        return this.estimateTokens(`${message.role}: ${message.content}${evidence}`);
     }
 
     estimateTokens(content: string): number {
@@ -58,15 +61,23 @@ export class ContextManagerService {
         message: RuntimeMessage,
         maxTokens: number,
     ): RuntimeMessage {
+        let evidence = message.evidence;
+        while (evidence?.length && this.estimateMessageTokens({ ...message, evidence }) > maxTokens) {
+            evidence = evidence.slice(1);
+        }
+        const evidenceTokens = evidence?.length
+            ? this.estimateTokens(`\nEvidence: ${JSON.stringify(evidence)}`)
+            : 0;
         const rolePrefixLength = `${message.role}: `.length;
-        const maxCharacters = Math.max(1, maxTokens * 4 - rolePrefixLength);
+        const maxCharacters = Math.max(1, (maxTokens - evidenceTokens) * 4 - rolePrefixLength);
 
         if (message.content.length <= maxCharacters) {
-            return message;
+            return evidence === message.evidence ? message : { ...message, evidence };
         }
 
         return {
             ...message,
+            evidence,
             content: `${message.content
                 .slice(0, Math.max(1, maxCharacters - 1))
                 .trimEnd()}…`,

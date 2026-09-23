@@ -56,6 +56,7 @@ model ApplicationSettings {
   retrievalRerankerThreshold      Float    @default(8.0) @map("retrieval_reranker_threshold")
   retrievalDeduplicationEnabled   Boolean  @default(true) @map("retrieval_deduplication_enabled")
   retrievalDeduplicationThreshold Float    @default(0.85) @map("retrieval_deduplication_threshold")
+  conversationEvidenceEnabled     Boolean  @default(false) @map("conversation_evidence_enabled")
   createdAt                       DateTime @default(now()) @map("created_at")
   updatedAt                       DateTime @updatedAt @map("updated_at")
 
@@ -87,9 +88,27 @@ model Message {
   chunksStartingHere ConversationChunk[] @relation("ChunkStartMessage")
   chunksEndingHere   ConversationChunk[] @relation("ChunkEndMessage")
   observabilityTraces ObservabilityTrace[] @relation("MessageResponseTrace")
+  evidences          ConversationEvidence[]
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+model ConversationEvidence {
+  id          String   @id @default(uuid()) @db.Uuid
+  sequence    Int      @unique @default(autoincrement())
+  messageId   String   @map("message_id") @db.Uuid
+  sourceType  String   @default("conversation_retrieval") @map("source_type")
+  dateFrom    DateTime @map("date_from") @db.Timestamptz(3)
+  dateTo      DateTime @map("date_to") @db.Timestamptz(3)
+  dates       String[]
+  timeZone    String   @map("time_zone")
+  sourceReferences Json   @map("source_references")
+  createdAt   DateTime @default(now()) @map("created_at")
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, createdAt])
+  @@map("conversation_evidences")
 }
 
 model ConversationChunk {

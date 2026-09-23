@@ -3,6 +3,12 @@ export type ObservabilityMessage = {
   role: string;
   content: string;
   createdAt?: string;
+  evidence?: Array<{
+    evidence_id: string;
+    date_from: string;
+    date_to: string;
+    dates: string[];
+  }>;
 };
 
 export type ContextPart = {

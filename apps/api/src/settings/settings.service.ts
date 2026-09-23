@@ -255,6 +255,13 @@ export class SettingsService {
             data.retrievalDeduplicationThreshold = this.optionalNumber(input.retrievalDeduplicationThreshold, "retrievalDeduplicationThreshold", 0, 1) as number;
         }
 
+        if (input.conversationEvidenceEnabled !== undefined) {
+            if (typeof input.conversationEvidenceEnabled !== "boolean") {
+                throw new BadRequestException("conversationEvidenceEnabled must be a boolean");
+            }
+            data.conversationEvidenceEnabled = input.conversationEvidenceEnabled;
+        }
+
         return data;
     }
 
@@ -445,6 +452,7 @@ export class SettingsService {
             retrievalRerankerThreshold: settings.retrievalRerankerThreshold,
             retrievalDeduplicationEnabled: settings.retrievalDeduplicationEnabled,
             retrievalDeduplicationThreshold: settings.retrievalDeduplicationThreshold,
+            conversationEvidenceEnabled: settings.conversationEvidenceEnabled,
         };
     }
 }

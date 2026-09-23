@@ -1,6 +1,6 @@
 import type { RuntimeMessage } from '../user-agent/types/user-agent.types';
-import type { ConversationRetrievalResult } from '../tools/conversation-retrieval/types/conversation-retrieval.types';
-import type { ToolExecutionError } from '../tools/types/tool.types';
+import type { ToolExecutionError, ToolExecutionResult } from '../tools/types/tool.types';
+import type { ConversationEvidenceReference } from '../tools/conversation-retrieval/types/conversation-retrieval.types';
 
 export type OrchestratorContext = {
   requestId: string;
@@ -21,7 +21,8 @@ export type OrchestratorToolExecution = {
   tool: string;
   arguments: Record<string, unknown>;
   status: 'success' | 'error';
-  result?: ConversationRetrievalResult;
+  result?: ToolExecutionResult;
+  evidenceReferences?: ConversationEvidenceReference[];
   error?: ToolExecutionError;
 };
 

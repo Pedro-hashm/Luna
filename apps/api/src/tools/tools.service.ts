@@ -9,6 +9,8 @@ import type {
   ExecuteToolResponse,
   ToolExecutionContext,
 } from './types/tool.types';
+import type { ConversationRetrievalDiagnostics } from './conversation-retrieval/types/conversation-retrieval.types';
+import type { RetrievalDiagnostics } from '../retrieval/retrieval.types';
 
 @Injectable()
 export class ToolsService {
@@ -43,18 +45,23 @@ export class ToolsService {
 
     try {
       const result = await this.toolRegistry.execute(tool, input, context);
-      const retrievalDiagnostics = result.__retrievalDiagnostics;
-      const conversationDiagnostics = result.__conversationDiagnostics;
+      const retrievalDiagnostics = 'query' in result ? result.__retrievalDiagnostics : undefined;
+      const conversationDiagnostics = 'query' in result ? result.__conversationDiagnostics : undefined;
+      const evidenceDiagnostics = 'evidence_id' in result ? result.__evidenceDiagnostics : undefined;
       const modelFacingResult = { ...result };
-      delete modelFacingResult.__retrievalDiagnostics;
-      delete modelFacingResult.__conversationDiagnostics;
-      const resultText = result.results
-        .map((item) => `${item.content}\n${item.tailContent ?? ''}`)
-        .join('\n');
+      if ('query' in modelFacingResult) {
+        delete modelFacingResult.__retrievalDiagnostics;
+        delete modelFacingResult.__conversationDiagnostics;
+      } else {
+        delete modelFacingResult.__evidenceDiagnostics;
+      }
+      const resultText = 'evidence_id' in result
+        ? result.results.map((item) => item.content).join('\n')
+        : result.results.map((item) => `${item.content}\n${item.tailContent ?? ''}`).join('\n');
       const estimatedOutputTokens = this.estimateTokens(resultText);
-      const relatedConversationIds = [
-        ...new Set(result.results.map((item) => item.conversationId)),
-      ];
+      const relatedConversationIds = 'query' in result
+        ? [...new Set(result.results.map((item) => item.conversationId))]
+        : [];
 
       await this.observabilityService.recordTrace({
         requestId,
@@ -72,6 +79,7 @@ export class ToolsService {
           execution: Date.now() - startedAtMs,
           ...this.retrievalStageDurations(retrievalDiagnostics),
           ...this.conversationStageDurations(conversationDiagnostics),
+          ...(evidenceDiagnostics ? { 'evidence.resolve': evidenceDiagnostics.latencyMs } : {}),
         },
         contextSnapshot: {
           immediate: {
@@ -93,6 +101,7 @@ export class ToolsService {
                 resultCount: result.results.length,
                 retrieval: retrievalDiagnostics,
                 conversationRetrieval: conversationDiagnostics,
+                evidenceResolve: evidenceDiagnostics,
               },
             ],
             tokens: estimatedOutputTokens,
@@ -104,7 +113,18 @@ export class ToolsService {
         completedAt: new Date(),
       });
 
-      return { tool, context, result: modelFacingResult };
+      const response: ExecuteToolResponse = { tool, context, result: modelFacingResult };
+      Object.defineProperties(response, {
+        internalConversationDiagnostics: {
+          value: conversationDiagnostics,
+          enumerable: false,
+        },
+        internalEvidenceReferences: {
+          value: conversationDiagnostics?.references ?? [],
+          enumerable: false,
+        },
+      });
+      return response;
     } catch (error) {
       const retrievalDiagnostics = this.retrievalDiagnosticsFromError(error);
       await this.observabilityService.recordTrace({
@@ -149,9 +169,7 @@ export class ToolsService {
   }
 
   private retrievalStageDurations(
-    diagnostics:
-      | NonNullable<ExecuteToolResponse['result']['__retrievalDiagnostics']>
-      | undefined,
+    diagnostics: RetrievalDiagnostics | undefined,
   ): Record<string, number> {
     if (!diagnostics?.stages) return {};
     return Object.fromEntries(
@@ -163,9 +181,7 @@ export class ToolsService {
   }
 
   private conversationStageDurations(
-    diagnostics:
-      | NonNullable<ExecuteToolResponse['result']['__conversationDiagnostics']>
-      | undefined,
+    diagnostics: ConversationRetrievalDiagnostics | undefined,
   ): Record<string, number> {
     if (!diagnostics?.stages) return {};
     return Object.fromEntries(
@@ -180,9 +196,7 @@ export class ToolsService {
     if (!error || typeof error !== 'object' || !('retrievalDiagnostics' in error)) {
       return undefined;
     }
-    return error.retrievalDiagnostics as NonNullable<
-      ExecuteToolResponse['result']['__retrievalDiagnostics']
-    >;
+    return error.retrievalDiagnostics as RetrievalDiagnostics;
   }
 
   private async normalizeContext(

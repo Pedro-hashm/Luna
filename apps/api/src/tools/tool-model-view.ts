@@ -1,12 +1,11 @@
-import type { ConversationRetrievalResult } from './conversation-retrieval/types/conversation-retrieval.types';
 import { isRuntimeOwnedToolArgument } from './tool-argument-ownership';
-import type { ToolExecutionError } from './types/tool.types';
+import type { ToolExecutionError, ToolExecutionResult } from './types/tool.types';
 
 type ToolExecutionForModel = {
   tool: string;
   arguments: Record<string, unknown>;
   status: 'success' | 'error';
-  result?: ConversationRetrievalResult;
+  result?: ToolExecutionResult;
   error?: ToolExecutionError;
 };
 
@@ -27,14 +26,16 @@ export function toToolExecutionModelView(
     ),
     status: execution.status,
     result: execution.result
-      ? toConversationRetrievalModelResult(execution.result)
+      ? 'evidence_id' in execution.result
+        ? toConversationContextModelResult(execution.result)
+        : toConversationRetrievalModelResult(execution.result)
       : undefined,
     error: execution.error,
   };
 }
 
 function toConversationRetrievalModelResult(
-  result: ConversationRetrievalResult,
+  result: Extract<ToolExecutionResult, { query: string | null }>,
 ): Record<string, unknown> {
   return {
     query: result.query,
@@ -48,6 +49,21 @@ function toConversationRetrievalModelResult(
         role: message.role,
         content: message.content,
       })),
+    })),
+  };
+}
+
+function toConversationContextModelResult(
+  result: Extract<ToolExecutionResult, { evidence_id: string }>,
+): Record<string, unknown> {
+  return {
+    evidence_id: result.evidence_id,
+    direction: result.direction,
+    resultCount: result.resultCount,
+    results: result.results.map((item) => ({
+      date: item.date,
+      role: item.role,
+      content: item.content,
     })),
   };
 }

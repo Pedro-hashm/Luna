@@ -107,9 +107,74 @@ describe('OrchestratorService', () => {
     expect(harness.execute).toHaveBeenCalledTimes(2);
     expect(harness.chat).toHaveBeenCalledTimes(2);
   });
+
+  it('uses dates already present in Evidence without calling a tool', async () => {
+    const context = orchestratorContext();
+    context.input = 'Em que dia falamos disso?';
+    context.recentMessages = [
+      {
+        id: currentMessageId,
+        role: 'assistant',
+        content: 'Sobre o Nebula 47, discutimos as regras.',
+        createdAt: '2026-09-21T12:00:00.000Z',
+        evidence: [{ evidence_id: 'ev_1', date_from: '2026-09-12', date_to: '2026-09-12', dates: ['2026-09-12'] }],
+      },
+      {
+        id: 'current-user-message',
+        role: 'user',
+        content: context.input,
+        createdAt: '2026-09-21T12:01:00.000Z',
+      },
+    ];
+    const harness = createHarness([llmResponse('{"type":"finalize"}')], true);
+
+    await harness.service.execute(context);
+
+    expect(harness.execute).not.toHaveBeenCalled();
+    const prompt = harness.chat.mock.calls[0]?.[0].messages.map((message) => message.content).join('\n') ?? '';
+    expect(prompt).toContain('"evidence_id":"ev_1"');
+    expect(prompt).toContain('"dates":["2026-09-12"]');
+    expect(prompt).toContain('conversation_context');
+    expect(prompt).not.toContain(conversationId);
+    expect(prompt).not.toContain(chunkId);
+  });
+
+  it.each([
+    ['o que falamos antes?', 'before'],
+    ['e depois?', 'after'],
+    ['me mostra o contexto em volta', 'both'],
+  ])('uses conversation_context direction %s', async (question, direction) => {
+    const context = orchestratorContext();
+    context.input = question;
+    const harness = createHarness([
+      llmResponse(JSON.stringify({ type: 'tool_call', tool: 'conversation_context', arguments: { evidence_id: 'ev_1', direction } })),
+      llmResponse('{"type":"finalize"}'),
+    ], true);
+    harness.execute.mockResolvedValue(contextToolResponse(direction));
+
+    await harness.service.execute(context);
+
+    expect(harness.execute).toHaveBeenCalledWith(expect.objectContaining({
+      tool: 'conversation_context',
+      input: { evidence_id: 'ev_1', direction },
+    }));
+  });
+
+  it('does not expose or execute conversation_context when Evidence is disabled', async () => {
+    const harness = createHarness([
+      llmResponse(JSON.stringify({ type: 'tool_call', tool: 'conversation_context', arguments: { evidence_id: 'ev_1', direction: 'before' } })),
+    ]);
+
+    const result = await harness.service.execute(orchestratorContext());
+
+    expect(harness.execute).not.toHaveBeenCalled();
+    expect(result.toolExecutions[0]?.status).toBe('error');
+    const prompt = harness.chat.mock.calls[0]?.[0].messages.map((message) => message.content).join('\n') ?? '';
+    expect(prompt).not.toContain('conversation_context');
+  });
 });
 
-function createHarness(decisions: LlmResponse[]) {
+function createHarness(decisions: LlmResponse[], evidenceEnabled = false) {
   const chat = jest.fn<Promise<LlmResponse>, [LlmRequest]>();
   const execute = jest.fn<Promise<ExecuteToolResponse>, [ExecuteToolRequest]>();
 
@@ -125,6 +190,7 @@ function createHarness(decisions: LlmResponse[]) {
         orchestratorMaxIterations: 4,
         orchestratorMaxToolCalls: 4,
         orchestratorToolResultMaxTokens: 5000,
+        conversationEvidenceEnabled: evidenceEnabled,
       }),
     } as never,
     { execute } as never,
@@ -139,6 +205,11 @@ function createHarness(decisions: LlmResponse[]) {
             properties: { query: { type: 'string' } },
           },
         },
+        {
+          name: 'conversation_context',
+          description: 'Expande uma Evidence existente.',
+          inputSchema: { type: 'object', additionalProperties: false, properties: { evidence_id: { type: 'string' }, direction: { type: 'string', enum: ['before', 'after', 'both'] } } },
+        },
       ]),
       has: jest.fn().mockReturnValue(true),
     } as never,
@@ -146,6 +217,19 @@ function createHarness(decisions: LlmResponse[]) {
   );
 
   return { service, chat, execute };
+}
+
+function contextToolResponse(direction: string): ExecuteToolResponse {
+  return {
+    tool: 'conversation_context',
+    context: { messages: [] },
+    result: {
+      evidence_id: 'ev_1',
+      direction: direction as 'before' | 'after' | 'both',
+      resultCount: 1,
+      results: [{ date: '2026-09-12', role: 'user', content: 'Comentamos o Nebula 47.' }],
+    },
+  };
 }
 
 function llmResponse(content: string): LlmResponse {

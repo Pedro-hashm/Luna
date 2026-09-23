@@ -3,6 +3,7 @@ import { ConversationChunkStatus, Prisma } from '@prisma/client';
 import { ConversationEmbeddingService } from '../../conversation/conversation-embedding.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { RetrievalCandidate, RetrievalQuery, Retriever } from '../../retrieval/retrieval.types';
+import type { ConversationEvidenceReference } from './types/conversation-retrieval.types';
 
 type RawChunk = {
   id: string;
@@ -31,6 +32,62 @@ export class ConversationChunkRetrievalProvider implements Retriever {
     private readonly prisma: PrismaService,
     private readonly embeddings: ConversationEmbeddingService,
   ) {}
+
+  /** Expands a persisted source range by message order; this never runs semantic retrieval. */
+  async expandEvidenceReference(
+    reference: ConversationEvidenceReference,
+    direction: 'before' | 'after' | 'both',
+    adjacentLimit: number,
+  ): Promise<Array<{ id: string; role: string; content: string; createdAt: Date }>> {
+    const anchor = await this.prisma.message.findMany({
+      where: {
+        conversationId: reference.conversationId,
+        id: { in: reference.messageIds },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, role: true, content: true, createdAt: true },
+    });
+    if (!anchor.length) return [];
+
+    const first = anchor[0];
+    const last = anchor[anchor.length - 1];
+    const [before, after] = await Promise.all([
+      direction === 'after' ? Promise.resolve([]) : this.prisma.message.findMany({
+        where: {
+          conversationId: reference.conversationId,
+          OR: [
+            { createdAt: { lt: first.createdAt } },
+            { createdAt: first.createdAt, id: { lt: first.id } },
+          ],
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: adjacentLimit,
+        select: { id: true, role: true, content: true, createdAt: true },
+      }),
+      direction === 'before' ? Promise.resolve([]) : this.prisma.message.findMany({
+        where: {
+          conversationId: reference.conversationId,
+          OR: [
+            { createdAt: { gt: last.createdAt } },
+            { createdAt: last.createdAt, id: { gt: last.id } },
+          ],
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: adjacentLimit,
+        select: { id: true, role: true, content: true, createdAt: true },
+      }),
+    ]);
+
+    const surrounding = [
+      ...(direction === 'after' ? [] : before.reverse()),
+      ...(direction === 'both' ? anchor : []),
+      ...after,
+    ];
+    const unique = new Map(surrounding.map((message) => [message.id, message]));
+    return [...unique.values()].sort((a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+    );
+  }
 
   async retrieveVector(
     query: RetrievalQuery,

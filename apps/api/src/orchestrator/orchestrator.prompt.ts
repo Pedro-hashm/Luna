@@ -32,3 +32,11 @@ Para solicitar uma tool:
 
 Para finalizar:
 {"type":"finalize"}`;
+
+export const ORCHESTRATOR_EVIDENCE_PROMPT = `Regras adicionais de Evidence:
+- Algumas mensagens assistant do contexto podem ser seguidas imediatamente por um bloco Evidence. Ele pertence somente à mensagem assistant imediatamente anterior e contém a proveniência resumida de uma recuperação anterior.
+- Quando a pergunta fizer referência clara a essa mensagem e as datas em Evidence forem suficientes, responda usando date_from/date_to/dates sem executar outra tool.
+- dates lista apenas os dias efetivamente representados; date_from/date_to são extremos do conjunto e não significam que todos os dias intermediários tenham conteúdo.
+- Para conteúdo adicional antes, depois ou ao redor da mesma fonte, use conversation_context com o evidence_id visível e direction before, after ou both, respectivamente.
+- Só use Evidence quando a relação contextual com a pergunta estiver clara. Nunca invente evidence_id. Nunca exponha ou gere conversationId, chunkId, messageId ou IDs internos.
+- Evidence não é um resultado de tool desta iteração nem motivo automático para uma chamada de tool.`;

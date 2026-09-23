@@ -16,6 +16,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { formatApplicationDateTime } from '../time/application-time';
 import { ContextManagerService } from '../user-agent/context-manager/context-manager.service';
+import { EvidenceService } from '../evidence/evidence.service';
+import type { PublicConversationEvidence } from '../evidence/evidence.types';
 import { UserAgentService } from '../user-agent/user-agent.service';
 import type {
   RuntimeMessage,
@@ -40,6 +42,7 @@ export class ConversationService {
     private readonly conversationChunkService: ConversationChunkService,
     private readonly settingsService: SettingsService,
     private readonly observabilityService: ObservabilityService,
+    private readonly evidenceService: EvidenceService,
   ) {}
 
   async createConversationWithMessage(
@@ -175,6 +178,7 @@ export class ConversationService {
           include: {
             messages: {
               orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              include: { evidences: true },
             },
           },
         })
@@ -182,7 +186,7 @@ export class ConversationService {
           data: {
             title: this.titleFromContent(normalizedContent),
           },
-          include: { messages: true },
+          include: { messages: { include: { evidences: true } } },
         });
 
     if (!conversation) {
@@ -207,7 +211,11 @@ export class ConversationService {
     });
     const recentMessages = this.contextManager.buildRecentMessages(
       [...conversation.messages, userMessage].map((message) =>
-        this.toRuntimeMessage(message, settings.appTimezone),
+        this.toRuntimeMessage(
+          message,
+          settings.appTimezone,
+          settings.conversationEvidenceEnabled,
+        ),
       ),
       settings.immediateContextMaxTokens,
     );
@@ -217,6 +225,8 @@ export class ConversationService {
       [],
       undefined,
       currentDateTime,
+      undefined,
+      { enabled: settings.conversationEvidenceEnabled, created: false, evidences: [] },
     );
     const userAgentStartedAt = Date.now();
 
@@ -269,6 +279,48 @@ export class ConversationService {
     });
     const persistenceStageMs = Date.now() - persistenceStartedAt;
 
+    const evidenceStartedAt = Date.now();
+    let createdEvidences: Array<PublicConversationEvidence & {
+      referenceCount: number; exactDateFrom: string; exactDateTo: string;
+      sourceReferences: import('../evidence/evidence.types').StoredConversationEvidenceReference[];
+    }> = [];
+    const retrievalResults = execution.orchestrator.toolExecutions
+        .filter((toolExecution) => toolExecution.tool === 'conversation_retrieval')
+        .map((toolExecution) => ({
+          successful: toolExecution.status === 'success',
+          hasResults: Boolean(
+            toolExecution.status === 'success' &&
+            toolExecution.result &&
+            'query' in toolExecution.result &&
+            toolExecution.result.results.length > 0,
+          ),
+          references: toolExecution.evidenceReferences ?? [],
+        }));
+    try {
+      createdEvidences = await this.evidenceService.createForAssistantMessage({
+        enabled: settings.conversationEvidenceEnabled,
+        assistantMessageId: assistantMessage.id,
+        timeZone: settings.appTimezone,
+        retrievalResults,
+      });
+    } catch (error) {
+      this.logger.warn(`Evidence persistence failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+    const evidenceStageMs = Date.now() - evidenceStartedAt;
+    const evidenceTrace = {
+      enabled: settings.conversationEvidenceEnabled,
+      created: createdEvidences.length > 0,
+      evidences: createdEvidences.map((evidence) => ({
+        evidenceId: evidence.evidence_id,
+        referenceCount: evidence.referenceCount,
+        dateFrom: evidence.exactDateFrom,
+        dateTo: evidence.exactDateTo,
+        dates: evidence.dates,
+        sourceReferences: evidence.sourceReferences,
+      })),
+    };
+    this.logger.log(JSON.stringify({ event: 'evidence.enabled', enabled: settings.conversationEvidenceEnabled }));
+
     const chunkStartedAt = Date.now();
     try {
       await this.conversationChunkService.synchronizeConversation(
@@ -318,6 +370,7 @@ export class ConversationService {
         luna: execution.timings.lunaMs,
         responsePersistence: persistenceStageMs,
         chunkIndexing: chunkStageMs,
+        'evidence.persist': evidenceStageMs,
       },
       contextSnapshot: this.createContextSnapshot(
         recentMessages,
@@ -325,6 +378,7 @@ export class ConversationService {
         execution.orchestrator.finalInstructions,
         execution.state.currentDateTime,
         execution.luna.promptMessages,
+        evidenceTrace,
       ),
       startedAt: traceStartedAt,
       completedAt: new Date(),
@@ -345,6 +399,7 @@ export class ConversationService {
     finalInstructions?: string,
     currentDateTime?: string,
     lunaPromptMessages?: ChatMessage[],
+    evidence?: { enabled: boolean; created: boolean; evidences: Array<{ evidenceId: string; referenceCount: number; dateFrom: string; dateTo: string; dates?: string[]; sourceReferences?: unknown[] }> },
   ): ContextSnapshot {
     const immediateTokens =
       this.contextManager.estimateMessagesTokens(recentMessages);
@@ -365,6 +420,7 @@ export class ConversationService {
       role: message.role,
       content: message.content,
       createdAt: message.createdAt,
+      evidence: message.evidence,
     }));
 
     const snapshot: ContextSnapshot = {
@@ -373,6 +429,7 @@ export class ConversationService {
       tools: { items: toolExecutions, tokens: toolsTokens },
       totalTokens:
         immediateTokens + toolsTokens + systemTokens + orchestratorTokens,
+      evidence: evidence ?? { enabled: false, created: false, evidences: [] },
     };
 
     if (promptSections.system.length > 0) {
@@ -495,14 +552,23 @@ export class ConversationService {
       role: MessageRole;
       content: string;
       createdAt: Date;
+      evidences?: Array<{ sequence: number; dateFrom: Date; dateTo: Date; dates: string[]; timeZone: string }>;
     },
     timeZone: string,
+    evidenceEnabled: boolean,
   ): RuntimeMessage {
     return {
       id: message.id,
       role: message.role,
       content: message.content,
       createdAt: formatApplicationDateTime(message.createdAt, timeZone),
+      ...(evidenceEnabled && message.role === MessageRole.assistant && message.evidences?.length
+        ? {
+            evidence: message.evidences.map((evidence) =>
+              this.evidenceService.toPublicView(evidence),
+            ),
+          }
+        : {}),
     };
   }
 

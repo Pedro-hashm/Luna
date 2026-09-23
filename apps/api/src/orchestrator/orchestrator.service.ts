@@ -13,7 +13,8 @@ import {
 } from '../tools/types/tool-errors';
 import type { ToolExecutionError } from '../tools/types/tool.types';
 import type { ToolDefinition } from '../tools/tool-registry.types';
-import { ORCHESTRATOR_SYSTEM_PROMPT } from './orchestrator.prompt';
+import { ORCHESTRATOR_EVIDENCE_PROMPT, ORCHESTRATOR_SYSTEM_PROMPT } from './orchestrator.prompt';
+import { toRuntimeChatMessages } from '../user-agent/context-manager/runtime-context';
 import type {
   OrchestratorContext,
   OrchestratorDecision,
@@ -41,7 +42,9 @@ export class OrchestratorService {
 
   async execute(context: OrchestratorContext): Promise<OrchestratorResult> {
     const settings = await this.settingsService.getApplicationSettings();
-    const tools = this.toolRegistry.describe();
+    const tools = this.toolRegistry.describe().filter(
+      (tool) => tool.name !== 'conversation_context' || settings.conversationEvidenceEnabled,
+    );
     const toolExecutions: OrchestratorToolExecution[] = [];
     const decisions: OrchestratorDecisionRecord[] = [];
 
@@ -55,6 +58,7 @@ export class OrchestratorService {
         tools,
         toolExecutions,
         iteration,
+        settings.conversationEvidenceEnabled,
       );
       const startedAt = new Date();
       const startedAtMs = Date.now();
@@ -135,6 +139,24 @@ export class OrchestratorService {
         decision,
         settings.orchestratorToolResultMaxTokens,
       );
+
+      if (toolDecision.tool === 'conversation_context' && !settings.conversationEvidenceEnabled) {
+        decisions.push({ iteration, type: 'tool_call', tool: toolDecision.tool, status: 'rejected' });
+        toolExecutions.push({
+          iteration,
+          tool: toolDecision.tool,
+          arguments: toolDecision.arguments,
+          status: 'error',
+          error: {
+            status: 'error',
+            errorType: 'RUNTIME_CONTEXT',
+            tool: toolDecision.tool,
+            message: 'Conversation Evidence is disabled.',
+            modelRetryable: false,
+          },
+        });
+        return this.result(context, toolExecutions, decisions, iteration, DEFAULT_FINAL_INSTRUCTIONS);
+      }
 
       if (toolExecutions.length >= settings.orchestratorMaxToolCalls) {
         decisions.push({
@@ -273,6 +295,7 @@ export class OrchestratorService {
           arguments: decision.arguments,
           status: 'success',
           result: execution.result,
+          evidenceReferences: execution.internalEvidenceReferences,
         });
         return 'continue';
       } catch (error) {
@@ -470,6 +493,7 @@ export class OrchestratorService {
     tools: ToolDefinition[],
     toolExecutions: OrchestratorToolExecution[],
     iteration: number,
+    evidenceEnabled: boolean,
   ): ChatMessage[] {
     const runtimeState = {
       currentDateTime: context.currentDateTime,
@@ -481,7 +505,12 @@ export class OrchestratorService {
     };
 
     return [
-      { role: 'system', content: ORCHESTRATOR_SYSTEM_PROMPT },
+      {
+        role: 'system',
+        content: evidenceEnabled
+          ? `${ORCHESTRATOR_SYSTEM_PROMPT}\n\n${ORCHESTRATOR_EVIDENCE_PROMPT}`
+          : ORCHESTRATOR_SYSTEM_PROMPT,
+      },
       {
         role: 'system',
         content: `Registered tools:\n${JSON.stringify(tools)}`,
@@ -492,10 +521,7 @@ export class OrchestratorService {
           'Operational state for this iteration. The latest user message is the current request.\n' +
           JSON.stringify(runtimeState),
       },
-      ...context.recentMessages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      })),
+      ...toRuntimeChatMessages(context.recentMessages),
     ];
   }
 

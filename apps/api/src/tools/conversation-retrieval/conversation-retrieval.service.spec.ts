@@ -187,6 +187,14 @@ describe('ConversationRetrievalService', () => {
     expect(result.__conversationDiagnostics).toMatchObject({
       scope: 'current_conversation',
       counts: { retrievalCandidates: 1, returnedResults: 1, excludedCandidates: 0 },
+      references: [expect.objectContaining({
+        conversationId,
+        chunkId: '20e6de7d-8da0-4c13-af19-8c1e641c2707',
+        startMessageId,
+        endMessageId: currentMessageId,
+        messageIds: [startMessageId, currentMessageId],
+        dates: ['2026-09-21'],
+      })],
       candidates: [
         expect.objectContaining({
           chunkId: '20e6de7d-8da0-4c13-af19-8c1e641c2707',

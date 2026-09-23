@@ -57,6 +57,18 @@ export type ConversationRetrievalResult = {
   __conversationDiagnostics?: ConversationRetrievalDiagnostics;
 };
 
+/** Internal coordinates of the source messages represented by a returned result. */
+export type ConversationEvidenceReference = {
+  conversationId: string;
+  chunkId: string;
+  startMessageId: string;
+  endMessageId: string;
+  messageIds: string[];
+  startAt: string;
+  endAt: string;
+  dates: string[];
+};
+
 export type ConversationRetrievalDiagnostics = {
   scope: ConversationRetrievalScope;
   dateFrom: string | null;
@@ -67,6 +79,7 @@ export type ConversationRetrievalDiagnostics = {
     messageExpansion: { count: number; latencyMs: number };
     resultAssembly: { count: number; latencyMs: number };
   };
+  references: ConversationEvidenceReference[];
   counts: {
     retrievalCandidates: number;
     returnedResults: number;

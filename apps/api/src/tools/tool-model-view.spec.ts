@@ -54,4 +54,30 @@ describe('toToolExecutionModelView', () => {
     expect(serialized).toContain('Tokyo Ghoul');
     expect(serialized).toContain('America/Sao_Paulo');
   });
+
+  it('keeps conversation_context results limited to public Evidence and message content', () => {
+    const view = toToolExecutionModelView({
+      tool: 'conversation_context',
+      arguments: { evidence_id: 'ev_1', direction: 'before' },
+      status: 'success',
+      result: {
+        evidence_id: 'ev_1',
+        direction: 'before',
+        resultCount: 1,
+        results: [{ date: '2026-09-12', role: 'user', content: 'Falamos do Nebula 47.' }],
+        __evidenceDiagnostics: {
+          event: 'evidence.resolve', evidenceId: 'ev_1', direction: 'before',
+          referenceCount: 1, resultCount: 1, latencyMs: 3,
+        },
+      },
+    });
+    const serialized = JSON.stringify(view);
+
+    expect(serialized).toContain('ev_1');
+    expect(serialized).toContain('Falamos do Nebula 47.');
+    expect(serialized).not.toContain('conversation-internal-id');
+    expect(serialized).not.toContain('chunk-internal-id');
+    expect(serialized).not.toContain('message-internal-id');
+    expect(serialized).not.toContain('referenceCount');
+  });
 });

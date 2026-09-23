@@ -12,6 +12,7 @@ import {
 import type { ToolExecutionContext } from '../types/tool.types';
 import type {
   ConversationRetrievalInput,
+  ConversationEvidenceReference,
   ConversationRetrievalItem,
   ConversationRetrievalMessage,
   ConversationRetrievalResult,
@@ -109,6 +110,7 @@ export class ConversationRetrievalService {
         messageExpansion: expansion.messageExpansion,
         resultAssembly: expansion.resultAssembly,
       },
+      references: expansion.references,
       counts: {
         retrievalCandidates: candidates.length,
         returnedResults: results.length,
@@ -368,6 +370,7 @@ export class ConversationRetrievalService {
       returnedMessageCount: number;
       resultTokens?: number;
     }>;
+    references: ConversationEvidenceReference[];
   }> {
     const expansionStartedAt = Date.now();
     const expanded = await Promise.all(
@@ -394,6 +397,7 @@ export class ConversationRetrievalService {
       returnedMessageCount: number;
       resultTokens?: number;
     }> = [];
+    const references: ConversationEvidenceReference[] = [];
     const seenMessageIds = new Set<string>();
     let remainingTokens = input.maxContextTokens;
 
@@ -489,6 +493,20 @@ export class ConversationRetrievalService {
       }
 
       results.push(result);
+      const firstSourceMessage = messages.range[0];
+      const lastSourceMessage = messages.range[messages.range.length - 1];
+      references.push({
+        conversationId: candidate.conversationId,
+        chunkId: candidate.id,
+        startMessageId: firstSourceMessage.id,
+        endMessageId: lastSourceMessage.id,
+        messageIds: messages.range.map((message) => message.id),
+        startAt: firstSourceMessage.createdAt.toISOString(),
+        endAt: lastSourceMessage.createdAt.toISOString(),
+        dates: [...new Set(messages.range.map((message) =>
+          formatApplicationDateTime(message.createdAt, input.timeZone).slice(0, 10),
+        ))].sort(),
+      });
     }
 
     return {
@@ -499,6 +517,7 @@ export class ConversationRetrievalService {
         latencyMs: Date.now() - assemblyStartedAt,
       },
       candidates: candidateDiagnostics,
+      references,
     };
   }
 

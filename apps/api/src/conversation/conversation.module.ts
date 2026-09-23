@@ -5,9 +5,10 @@ import { ConversationEmbeddingModule } from "./conversation-embedding.module";
 import { ConversationService } from "./conversation.service";
 import { SettingsModule } from "../settings/settings.module";
 import { UserAgentModule } from "../user-agent/user-agent.module";
+import { EvidenceModule } from "../evidence/evidence.module";
 
 @Module({
-    imports: [ConversationEmbeddingModule, SettingsModule, UserAgentModule],
+    imports: [ConversationEmbeddingModule, EvidenceModule, SettingsModule, UserAgentModule],
     controllers: [ConversationController],
     providers: [
         ConversationService,

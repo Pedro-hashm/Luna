@@ -2,9 +2,12 @@ import type {
   ConversationRetrievalInput,
   ConversationRetrievalResult,
 } from '../conversation-retrieval/types/conversation-retrieval.types';
+import type { ConversationContextResult } from '../../evidence/evidence.types';
+import type { ConversationEvidenceReference, ConversationRetrievalDiagnostics } from '../conversation-retrieval/types/conversation-retrieval.types';
 
-export const TOOL_NAMES = ['conversation_retrieval'] as const;
+export const TOOL_NAMES = ['conversation_retrieval', 'conversation_context'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
+export type ToolExecutionResult = ConversationRetrievalResult | ConversationContextResult;
 
 export type ToolContextMessage = {
   id?: string;
@@ -41,5 +44,8 @@ export type ExecuteToolRequest = {
 export type ExecuteToolResponse = {
   tool: ToolName;
   context: ToolExecutionContext;
-  result: ConversationRetrievalResult;
+  result: ToolExecutionResult;
+  /** Internal only; attached as non-enumerable runtime metadata. */
+  internalConversationDiagnostics?: ConversationRetrievalDiagnostics;
+  internalEvidenceReferences?: ConversationEvidenceReference[];
 };

@@ -5,6 +5,14 @@ import type { OrchestratorResult } from '../../orchestrator/orchestrator.types';
 export type RuntimeMessage = ChatMessage & {
   id: string;
   createdAt: string;
+  evidence?: ConversationEvidenceView[];
+};
+
+export type ConversationEvidenceView = {
+  evidence_id: string;
+  date_from: string;
+  date_to: string;
+  dates: string[];
 };
 
 export type UserAgentInitialState = {

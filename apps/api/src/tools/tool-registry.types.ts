@@ -1,5 +1,4 @@
-import type { ConversationRetrievalResult } from "./conversation-retrieval/types/conversation-retrieval.types";
-import type { ToolExecutionContext, ToolName } from "./types/tool.types";
+import type { ToolExecutionContext, ToolExecutionResult, ToolName } from "./types/tool.types";
 
 export type ToolInputSchema = {
     type: "object";
@@ -14,7 +13,7 @@ export type RegisteredTool = {
     execute(
         input: Record<string, unknown>,
         context: ToolExecutionContext,
-    ): Promise<ConversationRetrievalResult>;
+    ): Promise<ToolExecutionResult>;
 };
 
 export type ToolDefinition = Pick<

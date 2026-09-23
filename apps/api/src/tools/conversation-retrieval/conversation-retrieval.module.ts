@@ -28,6 +28,6 @@ import { ConversationRetrievalService } from './conversation-retrieval.service';
     RetrievalEngine,
     ConversationRetrievalService,
   ],
-  exports: [ConversationRetrievalService, RetrievalEngine],
+  exports: [ConversationRetrievalService, ConversationChunkRetrievalProvider, RetrievalEngine],
 })
 export class ConversationRetrievalModule {}

@@ -69,4 +69,43 @@ describe('ToolsService observability', () => {
       }),
     );
   });
+
+  it('records Evidence resolution diagnostics and keeps them out of the returned tool result', async () => {
+    const result = {
+      evidence_id: 'ev_3',
+      direction: 'before',
+      resultCount: 1,
+      results: [{ date: '2026-09-12', role: 'user', content: 'Contexto anterior.' }],
+    };
+    Object.defineProperty(result, '__evidenceDiagnostics', {
+      value: {
+        event: 'evidence.resolve', evidenceId: 'ev_3', direction: 'before',
+        referenceCount: 2, resultCount: 1, latencyMs: 12,
+      },
+      enumerable: false,
+    });
+    const registry = { has: jest.fn().mockReturnValue(true), execute: jest.fn().mockResolvedValue(result) };
+    const observability = { recordTrace: jest.fn().mockResolvedValue(undefined) };
+    const service = new ToolsService(registry as never, observability as never, {} as never);
+
+    const response = await service.execute({
+      tool: 'conversation_context',
+      input: { evidence_id: 'ev_3', direction: 'before' },
+      context: { currentDateTime: '2026-09-22T12:00:00-03:00', messages: [] },
+    });
+
+    expect(response.result).not.toHaveProperty('__evidenceDiagnostics');
+    expect(JSON.stringify(response.result)).not.toContain('referenceCount');
+    expect(observability.recordTrace).toHaveBeenCalledWith(expect.objectContaining({
+      stageDurations: expect.objectContaining({ 'evidence.resolve': 12 }),
+      contextSnapshot: expect.objectContaining({
+        tools: expect.objectContaining({ items: [expect.objectContaining({
+          evidenceResolve: expect.objectContaining({
+            event: 'evidence.resolve', evidenceId: 'ev_3', direction: 'before',
+            referenceCount: 2, resultCount: 1, latencyMs: 12,
+          }),
+        })] }),
+      }),
+    }));
+  });
 });

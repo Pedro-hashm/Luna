@@ -24,8 +24,9 @@ export type ApplicationSettingsResponse = {
     retrievalRerankerModel: RerankerModel;
     retrievalRerankerTopK: number;
     retrievalRerankerThreshold: number;
-    retrievalDeduplicationEnabled: boolean;
-    retrievalDeduplicationThreshold: number;
+  retrievalDeduplicationEnabled: boolean;
+  retrievalDeduplicationThreshold: number;
+  conversationEvidenceEnabled: boolean;
 };
 
 export type ConversationChunkSettingsResponse = {

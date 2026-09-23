@@ -13,6 +13,38 @@ const row = {
 };
 
 describe('ConversationChunkRetrievalProvider', () => {
+  it.each([
+    ['before', ['before']],
+    ['after', ['after']],
+    ['both', ['before', 'anchor', 'after']],
+  ] as const)('expands persisted message references in direction %s without embedding search', async (direction, expected) => {
+    const message = (id: string, minute: number) => ({
+      id,
+      role: 'user',
+      content: id,
+      createdAt: new Date(`2026-09-12T12:${String(minute).padStart(2, '0')}:00.000Z`),
+    });
+    const findMany = jest.fn().mockImplementation((args) => {
+      if (args.where.id) return Promise.resolve([message('anchor', 10)]);
+      return args.where.OR[0].createdAt.lt
+        ? Promise.resolve([message('before', 9)])
+        : Promise.resolve([message('after', 11)]);
+    });
+    const embed = jest.fn();
+    const provider = new ConversationChunkRetrievalProvider(
+      { message: { findMany } } as never,
+      { embed } as never,
+    );
+    const result = await provider.expandEvidenceReference({
+      conversationId: 'conversation-id', chunkId: 'chunk-id',
+      startMessageId: 'anchor', endMessageId: 'anchor', messageIds: ['anchor'],
+      startAt: '2026-09-12T12:10:00.000Z', endAt: '2026-09-12T12:10:00.000Z', dates: ['2026-09-12'],
+    }, direction, 5);
+
+    expect(result.map((item) => item.id)).toEqual(expected);
+    expect(embed).not.toHaveBeenCalled();
+  });
+
   it('returns vector candidates with ranks and applies scope, time and topK filters', async () => {
     const $queryRaw = jest.fn().mockResolvedValue([row]);
     const provider = new ConversationChunkRetrievalProvider(
