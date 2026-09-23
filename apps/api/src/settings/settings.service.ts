@@ -297,6 +297,40 @@ export class SettingsService {
             );
         }
 
+        if (input.researchEnabled !== undefined) {
+            data.researchEnabled = this.requiredBoolean(input.researchEnabled, "researchEnabled");
+        }
+        if (input.researchSearchOrchestratorCombo !== undefined) {
+            data.researchSearchOrchestratorCombo = this.requiredText(input.researchSearchOrchestratorCombo, "researchSearchOrchestratorCombo");
+        }
+        if (input.researchDefaultMode !== undefined) {
+            data.researchDefaultMode = this.requiredChoice(input.researchDefaultMode, "researchDefaultMode", ["quick", "deep"]);
+        }
+        if (input.researchDefaultRecency !== undefined) {
+            data.researchDefaultRecency = this.requiredChoice(input.researchDefaultRecency, "researchDefaultRecency", ["auto", "day", "week", "month", "year"]);
+        }
+        if (input.researchMaxSources !== undefined) {
+            data.researchMaxSources = this.requiredInteger(input.researchMaxSources, "researchMaxSources", 1, 20);
+        }
+        if (input.researchMaxRounds !== undefined) {
+            data.researchMaxRounds = this.requiredInteger(input.researchMaxRounds, "researchMaxRounds", 1, 5);
+        }
+        if (input.researchMaxQueries !== undefined) {
+            data.researchMaxQueries = this.requiredInteger(input.researchMaxQueries, "researchMaxQueries", 1, 8);
+        }
+        if (input.researchSearchProvider !== undefined) {
+            data.researchSearchProvider = this.requiredChoice(input.researchSearchProvider, "researchSearchProvider", ["searxng"]);
+        }
+        if (input.researchExtractionProvider !== undefined) {
+            data.researchExtractionProvider = this.requiredChoice(input.researchExtractionProvider, "researchExtractionProvider", ["static-with-browser-fallback"]);
+        }
+        if (input.researchCacheEnabled !== undefined) {
+            data.researchCacheEnabled = this.requiredBoolean(input.researchCacheEnabled, "researchCacheEnabled");
+        }
+        if (input.researchBrowserFallbackEnabled !== undefined) {
+            data.researchBrowserFallbackEnabled = this.requiredBoolean(input.researchBrowserFallbackEnabled, "researchBrowserFallbackEnabled");
+        }
+
         return data;
     }
 
@@ -398,6 +432,20 @@ export class SettingsService {
         }
 
         return value.trim();
+    }
+
+    private requiredBoolean(value: unknown, field: string): boolean {
+        if (typeof value !== "boolean") {
+            throw new BadRequestException(`${field} must be a boolean`);
+        }
+        return value;
+    }
+
+    private requiredChoice<T extends string>(value: unknown, field: string, choices: readonly T[]): T {
+        if (typeof value !== "string" || !choices.includes(value as T)) {
+            throw new BadRequestException(`${field} must be one of: ${choices.join(", ")}`);
+        }
+        return value as T;
     }
 
     private optionalText(value: string | null, field: string): string | null {
@@ -505,6 +553,17 @@ export class SettingsService {
             temporalConsolidationFallbackCombo: settings.temporalConsolidationFallbackCombo,
             temporalConsolidationStartTime: settings.temporalConsolidationStartTime,
             temporalConsolidationEndTime: settings.temporalConsolidationEndTime,
+            researchEnabled: settings.researchEnabled,
+            researchSearchOrchestratorCombo: settings.researchSearchOrchestratorCombo,
+            researchDefaultMode: settings.researchDefaultMode as ApplicationSettingsResponse["researchDefaultMode"],
+            researchDefaultRecency: settings.researchDefaultRecency as ApplicationSettingsResponse["researchDefaultRecency"],
+            researchMaxSources: settings.researchMaxSources,
+            researchMaxRounds: settings.researchMaxRounds,
+            researchMaxQueries: settings.researchMaxQueries,
+            researchSearchProvider: settings.researchSearchProvider,
+            researchExtractionProvider: settings.researchExtractionProvider,
+            researchCacheEnabled: settings.researchCacheEnabled,
+            researchBrowserFallbackEnabled: settings.researchBrowserFallbackEnabled,
         };
     }
 }

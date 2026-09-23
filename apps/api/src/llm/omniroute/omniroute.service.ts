@@ -19,6 +19,9 @@ export class OmnirouteService {
             messages: llmRequest.messages,
             temperature: llmRequest.temperature,
             max_tokens: llmRequest.maxTokens,
+            ...(llmRequest.reasoningEffort
+                ? { reasoning_effort: llmRequest.reasoningEffort }
+                : {}),
         });
 
         this.logger.debug(`OmniRoute request: combo=${llmRequest.combo}, messages=${llmRequest.messages.length}, bytes=${requestBody.length}`);

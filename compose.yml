@@ -85,6 +85,24 @@ services:
       retries: 10
     restart: unless-stopped
 
+  searxng:
+    image: searxng/searxng:2026.9.22-2ed96e6fc
+    container_name: luna-v2-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_BIND_ADDRESS: 0.0.0.0
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-luna-v2-local-research-secret}
+      FORCE_OWNERSHIP: "false"
+    volumes:
+      - ./infra/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng_cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   migrate:
     image: luna-v2-migrate:local
     container_name: luna-v2-migrate
@@ -116,6 +134,10 @@ services:
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
       RETRIEVAL_RERANKER_URL: http://reranker:8200
       OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-http://host.docker.internal:20128/v1}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
+      SEARXNG_TIMEOUT_MS: ${SEARXNG_TIMEOUT_MS:-8000}
+      WEB_EXTRACT_TIMEOUT_MS: ${WEB_EXTRACT_TIMEOUT_MS:-12000}
+      WEB_EXTRACT_MAX_BYTES: ${WEB_EXTRACT_MAX_BYTES:-2000000}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -123,6 +145,8 @@ services:
         condition: service_completed_successfully
       reranker:
         condition: service_started
+      searxng:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -170,3 +194,5 @@ volumes:
     name: ${LUNA_V2_OLLAMA_VOLUME:-luna_luna-ollama-data}
   reranker_data:
     name: luna-v2-reranker-models
+  searxng_cache:
+    name: luna-v2-searxng-cache

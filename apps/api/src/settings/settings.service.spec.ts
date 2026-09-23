@@ -15,6 +15,11 @@ describe('SettingsService Conversation Evidence setting', () => {
       temporalConsolidationEnabled: false, temporalConsolidationDefaultCombo: null,
       temporalConsolidationFallbackCombo: null, temporalConsolidationStartTime: '04:30',
       temporalConsolidationEndTime: '08:30',
+      researchEnabled: true, researchSearchOrchestratorCombo: 'local-reasoning',
+      researchDefaultMode: 'quick', researchDefaultRecency: 'auto',
+      researchMaxSources: 5, researchMaxRounds: 2, researchMaxQueries: 3,
+      researchSearchProvider: 'searxng', researchExtractionProvider: 'static-with-browser-fallback',
+      researchCacheEnabled: true, researchBrowserFallbackEnabled: true,
     };
     const update = jest.fn().mockImplementation(({ data }) => {
       application = { ...application, ...data };
@@ -98,5 +103,30 @@ describe('SettingsService Conversation Evidence setting', () => {
     await expect(service.updateSettings({ application: {
       temporalConsolidationStartTime: '24:00',
     } })).rejects.toThrow('temporalConsolidationStartTime must be a time in HH:mm format');
+  });
+
+  it('persists the independent research combo and research toggle', async () => {
+    const { service, update } = harness();
+    const changed = await service.updateSettings({ application: {
+      researchSearchOrchestratorCombo: ' paid-general ',
+      researchEnabled: false,
+      researchDefaultRecency: 'week',
+    } });
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ data: {
+      researchSearchOrchestratorCombo: 'paid-general',
+      researchEnabled: false,
+      researchDefaultRecency: 'week',
+    } }));
+    expect(changed.application.researchSearchOrchestratorCombo).toBe('paid-general');
+    expect(changed.application.researchEnabled).toBe(false);
+    expect(changed.application.llmCombo).toBe('local-general');
+  });
+
+  it('rejects unsupported providers and unbounded research limits', async () => {
+    const { service } = harness();
+    await expect(service.updateSettings({ application: { researchSearchProvider: 'unknown' } }))
+      .rejects.toThrow('researchSearchProvider must be one of: searxng');
+    await expect(service.updateSettings({ application: { researchMaxRounds: 100 } }))
+      .rejects.toThrow('researchMaxRounds must be an integer between 1 and 5');
   });
 });

@@ -26,11 +26,38 @@ export function toToolExecutionModelView(
     ),
     status: execution.status,
     result: execution.result
-      ? 'evidence_id' in execution.result
+      ? 'researchRunId' in execution.result
+        ? toWebResearchModelResult(execution.result)
+        : 'evidence_id' in execution.result
         ? toConversationContextModelResult(execution.result)
         : toConversationRetrievalModelResult(execution.result)
       : undefined,
     error: execution.error,
+  };
+}
+
+function toWebResearchModelResult(
+  result: Extract<ToolExecutionResult, { researchRunId: string }>,
+): Record<string, unknown> {
+  const sourceKeys = ['sourceId', 'id', 'title', 'url', 'domain', 'sourceType', 'publishedAt', 'retrievedAt'];
+  const evidenceKeys = ['id', 'sourceId', 'text', 'location', 'type'];
+  const pick = (value: unknown, keys: string[]): Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(keys.filter((key) => record[key] !== undefined).map((key) => [key, record[key]]));
+  };
+
+  return {
+    status: result.status,
+    summaryContext: result.summaryContext.slice(0, 4000),
+    sources: result.sources.slice(0, 12).map((source) => pick(source, sourceKeys)),
+    evidence: result.evidence.slice(0, 20).map((item) => {
+      const value = pick(item, evidenceKeys);
+      if (typeof value.text === 'string') value.text = value.text.slice(0, 800);
+      return value;
+    }),
+    conflicts: result.conflicts.slice(0, 8),
+    metadata: pick(result.metadata, ['rounds', 'searchQueries', 'sourceCount']),
   };
 }
 

@@ -5,5 +5,6 @@ export interface LlmRequest {
     messages: ChatMessage[];
     temperature?: number;
     maxTokens?: number;
+    reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
     signal?: AbortSignal;
 }

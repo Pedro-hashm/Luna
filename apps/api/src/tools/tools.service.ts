@@ -29,13 +29,14 @@ export class ToolsService {
 
     const tool = request.tool;
     const rawInput = this.asRecord(request.input);
+    const requestId = request.requestId ?? randomUUID();
     const context = await this.normalizeContext(request.context);
+    context.requestId = requestId;
     const input = {
       ...rawInput,
     };
     const startedAt = new Date();
     const startedAtMs = Date.now();
-    const requestId = request.requestId ?? randomUUID();
     const estimatedInputTokens = this.estimateTokens(
       context.messages
         .map((message) => `${message.role}: ${message.content}`)
@@ -52,10 +53,12 @@ export class ToolsService {
       if ('query' in modelFacingResult) {
         delete modelFacingResult.__retrievalDiagnostics;
         delete modelFacingResult.__conversationDiagnostics;
-      } else {
+      } else if ('evidence_id' in modelFacingResult) {
         delete modelFacingResult.__evidenceDiagnostics;
       }
-      const resultText = 'evidence_id' in result
+      const resultText = 'researchRunId' in result
+        ? result.evidence.map((item) => item.text).join('\n')
+        : 'evidence_id' in result
         ? result.results.map((item) => item.content).join('\n')
         : result.results.map((item) => `${item.content}\n${item.tailContent ?? ''}\n${
             item.temporalChanges?.map((change) =>
@@ -105,7 +108,8 @@ export class ToolsService {
                 status: 'success',
                 input,
                 result: modelFacingResult,
-                resultCount: result.results.length,
+                resultCount: 'researchRunId' in result ? result.evidence.length : result.results.length,
+                researchRunId: 'researchRunId' in result ? result.researchRunId : undefined,
                 retrieval: retrievalDiagnostics,
                 conversationRetrieval: conversationDiagnostics,
                 evidenceResolve: evidenceDiagnostics,

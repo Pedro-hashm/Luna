@@ -84,6 +84,17 @@ export interface ExecuteToolResponse {
 export interface ApplicationSettings {
   llmCombo: string;
   orchestratorCombo: string;
+  researchEnabled: boolean;
+  researchSearchOrchestratorCombo: string;
+  researchDefaultMode: "quick" | "deep";
+  researchDefaultRecency: "auto" | "day" | "week" | "month" | "year";
+  researchMaxSources: number;
+  researchMaxRounds: number;
+  researchMaxQueries: number;
+  researchSearchProvider: string;
+  researchExtractionProvider: string;
+  researchCacheEnabled: boolean;
+  researchBrowserFallbackEnabled: boolean;
   appTimezone: string;
   llmTemperature: number | null;
   llmMaxTokens: number | null;
@@ -340,6 +351,55 @@ export interface ConversationInspector {
   }>;
 }
 
+export interface ResearchEvent {
+  id: string;
+  sequence: number;
+  type: string;
+  data: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ResearchSource {
+  id: string;
+  url: string;
+  normalizedUrl: string;
+  domain: string;
+  title: string;
+  sourceType: string;
+  rank: number | null;
+  publishedAt: string | null;
+  retrievedAt: string;
+  extractionMethod: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ResearchEvidence {
+  id: string;
+  sourceId: string;
+  text: string;
+  location: string | null;
+  type: string;
+  createdAt: string;
+}
+
+export interface ResearchRunView {
+  id: string;
+  conversationId: string | null;
+  messageId: string | null;
+  requestId: string | null;
+  question: string;
+  status: string;
+  mode: string;
+  plannerCombo: string;
+  summaryContext: string | null;
+  metadata: Record<string, unknown> | null;
+  startedAt: string;
+  completedAt: string | null;
+  events: ResearchEvent[];
+  sources: ResearchSource[];
+  evidence: ResearchEvidence[];
+}
+
 export class ConversationApiError extends Error {
   constructor(message: string) {
     super(message);
@@ -484,6 +544,20 @@ export async function getConversationInspector(
 ): Promise<ConversationInspector> {
   return requestJson<ConversationInspector>(
     `/api/observability/conversations/${encodeURIComponent(conversationId)}`,
+  );
+}
+
+export async function getConversationResearchRuns(
+  conversationId: string,
+): Promise<{ runs: ResearchRunView[] }> {
+  return requestJson<{ runs: ResearchRunView[] }>(
+    `/api/research/conversations/${encodeURIComponent(conversationId)}/runs`,
+  );
+}
+
+export async function getResearchRun(runId: string): Promise<ResearchRunView> {
+  return requestJson<ResearchRunView>(
+    `/api/research/runs/${encodeURIComponent(runId)}`,
   );
 }
 

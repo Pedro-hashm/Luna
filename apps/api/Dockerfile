@@ -39,16 +39,26 @@ WORKDIR /app/apps/api
 
 CMD ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
 
-FROM base AS runtime
+FROM dependencies AS browser-runtime
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+WORKDIR /app/apps/api
+
+# The browser is only used when static extraction cannot obtain page content.
+RUN ./node_modules/.bin/playwright install --with-deps --only-shell chromium \
+    && chmod -R a+rX /ms-playwright
+
+FROM browser-runtime AS runtime
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8000
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/apps/api ./apps/api
+COPY --from=build /app/node_modules /app/node_modules
+COPY --from=build /app/apps/api /app/apps/api
 
-WORKDIR /app/apps/api
+USER node
 
 EXPOSE 8000
 

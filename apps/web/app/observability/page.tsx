@@ -12,6 +12,7 @@ import {
   Database,
   FileText,
   Gauge,
+  Globe2,
   Layers3,
   LoaderCircle,
   MessageSquare,
@@ -22,14 +23,18 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BrainFlow } from "@/components/observability/brain-flow";
+import { ResearchRunInspector } from "@/components/observability/research-run-inspector";
 import {
   getConversationInspector,
+  getConversationResearchRuns,
   getConversations,
   getObservabilityMetrics,
+  getResearchRun,
   type ContextPart,
   type ConversationInspector,
   type ConversationListItem,
   type ObservabilityMetrics,
+  type ResearchRunView,
 } from "@/lib/conversation-api";
 
 const emptyMetrics: ObservabilityMetrics = {
@@ -52,7 +57,7 @@ const emptyMetrics: ObservabilityMetrics = {
 };
 
 export default function ObservabilityPage() {
-  const [activeSection, setActiveSection] = useState<"metrics" | "flow" | "prompts">("metrics");
+  const [activeSection, setActiveSection] = useState<"metrics" | "flow" | "research" | "prompts">("metrics");
   const [rangeDays, setRangeDays] = useState(14);
   const [metrics, setMetrics] = useState<ObservabilityMetrics>();
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
@@ -61,6 +66,12 @@ export default function ObservabilityPage() {
   const [activeTraceId, setActiveTraceId] = useState<string>();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const [researchRuns, setResearchRuns] = useState<ResearchRunView[]>([]);
+  const [selectedResearchRunId, setSelectedResearchRunId] = useState<string>();
+  const [researchRun, setResearchRun] = useState<ResearchRunView>();
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState<string>();
+  const [researchRefreshToken, setResearchRefreshToken] = useState(0);
 
   useEffect(() => {
     let isCurrent = true;
@@ -78,11 +89,16 @@ export default function ObservabilityPage() {
         setMetrics(nextMetrics);
         setConversations(nextConversations);
         const queryConversation = new URLSearchParams(window.location.search).get("conversation");
+        const queryView = new URLSearchParams(window.location.search).get("view");
         setSelectedConversationId(
           queryConversation && nextConversations.some((item) => item.id === queryConversation)
             ? queryConversation
             : nextConversations[0]?.id,
         );
+        if (queryView === "research") {
+          setResearchLoading(true);
+          setActiveSection("research");
+        }
         setError(undefined);
       } catch (requestError) {
         if (isCurrent) {
@@ -132,6 +148,44 @@ export default function ObservabilityPage() {
     };
   }, [selectedConversationId]);
 
+  useEffect(() => {
+    if (activeSection !== "research" || !selectedConversationId) return;
+    let isCurrent = true;
+    void getConversationResearchRuns(selectedConversationId)
+      .then(({ runs }) => {
+        if (!isCurrent) return;
+        setResearchRuns(runs);
+        setSelectedResearchRunId(runs[0]?.id);
+        setResearchLoading(runs.length > 0);
+        setResearchError(undefined);
+      })
+      .catch((requestError) => {
+        if (!isCurrent) return;
+        setResearchRuns([]);
+        setResearchLoading(false);
+        setResearchError(requestError instanceof Error ? requestError.message : "Não foi possível carregar as pesquisas.");
+      });
+    return () => { isCurrent = false; };
+  }, [activeSection, selectedConversationId, researchRefreshToken]);
+
+  useEffect(() => {
+    if (activeSection !== "research" || !selectedResearchRunId) return;
+    let isCurrent = true;
+    void getResearchRun(selectedResearchRunId)
+      .then((run) => {
+        if (!isCurrent) return;
+        setResearchRun(run);
+        setResearchLoading(false);
+        setResearchError(undefined);
+      })
+      .catch((requestError) => {
+        if (!isCurrent) return;
+        setResearchLoading(false);
+        setResearchError(requestError instanceof Error ? requestError.message : "Não foi possível carregar a execução da pesquisa.");
+      });
+    return () => { isCurrent = false; };
+  }, [activeSection, selectedResearchRunId, researchRefreshToken]);
+
   const currentMetrics = metrics ?? emptyMetrics;
   const maxStageMs = Math.max(1, ...currentMetrics.byStage.map((stage) => stage.totalMs));
   const activeTrace = inspector?.responses.find((trace) => trace.traceId === activeTraceId);
@@ -159,7 +213,7 @@ export default function ObservabilityPage() {
                 Luna · observabilidade
               </p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-                {activeSection === "metrics" ? "Métricas e contexto" : activeSection === "flow" ? "Fluxo e inspectors" : "Prompts recebidos"}
+                {activeSection === "metrics" ? "Métricas e contexto" : activeSection === "flow" ? "Fluxo e inspectors" : activeSection === "research" ? "Pesquisa na Web" : "Prompts recebidos"}
               </h1>
             </div>
           </div>
@@ -214,13 +268,21 @@ export default function ObservabilityPage() {
           {([
             ["metrics", "Métricas", BarChart3],
             ["flow", "Fluxo e inspectors", Brain],
+            ["research", "Pesquisa na Web", Globe2],
             ["prompts", "Prompts recebidos", FileText],
           ] as const).map(([section, label, Icon]) => (
             <button
               aria-current={activeSection === section ? "page" : undefined}
               className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition ${activeSection === section ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/15" : "text-slate-600 hover:bg-white/80 hover:text-slate-900"}`}
               key={section}
-              onClick={() => setActiveSection(section)}
+              onClick={() => {
+                if (section === "research") {
+                  setResearchLoading(true);
+                  setResearchRun(undefined);
+                  setResearchError(undefined);
+                }
+                setActiveSection(section);
+              }}
               type="button"
             >
               <Icon className="size-4" />
@@ -323,7 +385,11 @@ export default function ObservabilityPage() {
                       onClick={() => {
                         if (!trace.conversationId) return;
                         setSelectedConversationId(trace.conversationId);
-                        setActiveSection("flow");
+                        if (trace.toolName === "web_research") {
+                          setResearchLoading(true);
+                          setResearchRun(undefined);
+                        }
+                        setActiveSection(trace.toolName === "web_research" ? "research" : "flow");
                       }}
                       type="button"
                     >
@@ -379,6 +445,45 @@ export default function ObservabilityPage() {
               </section>
             </section>
               </>
+            ) : null}
+
+            {activeSection === "research" ? (
+              <section className="mt-6 grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
+                <section className="glass rounded-[1.7rem] p-5 sm:p-6">
+                  <SectionHeading icon={MessageSquare} eyebrow="Pesquisa na Web" title="Escolha uma conversa" description="Selecione a conversa que originou uma execução." />
+                  <div className="scrollbar-subtle mt-5 max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {conversations.length === 0 ? <EmptyInline label="Nenhuma conversa disponível." /> : conversations.map((conversation) => (
+                      <button
+                        className={`w-full rounded-xl border p-3 text-left transition ${conversation.id === selectedConversationId ? "border-indigo-200 bg-indigo-50/75" : "border-white/80 bg-white/42 hover:bg-white/75"}`}
+                        key={conversation.id}
+                        onClick={() => {
+                          setResearchLoading(true);
+                          setResearchRun(undefined);
+                          setResearchRuns([]);
+                          setSelectedResearchRunId(undefined);
+                          setSelectedConversationId(conversation.id);
+                        }}
+                        type="button"
+                      >
+                        <p className="truncate text-xs font-semibold text-slate-800">{conversation.title}</p>
+                        <p className="mt-1 truncate text-[10px] text-slate-500">{conversation.messageCount} mensagens · {formatDateTime(conversation.updatedAt)}</p>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-5 flex items-center justify-between gap-2 border-t border-white/80 pt-4">
+                    <p className="text-xs font-semibold text-slate-700">Execuções · {researchRuns.length}</p>
+                    <button aria-label="Atualizar pesquisas" className="rounded-lg p-1.5 text-indigo-600 transition hover:bg-white/80 disabled:opacity-50" disabled={!selectedConversationId || researchLoading} onClick={() => { setResearchLoading(true); setResearchRun(undefined); setResearchError(undefined); setResearchRefreshToken((value) => value + 1); }} type="button"><RefreshCw className={`size-3.5 ${researchLoading ? "animate-spin" : ""}`} /></button>
+                  </div>
+                  <div className="scrollbar-subtle mt-3 max-h-[32rem] space-y-2 overflow-y-auto pr-1">
+                    {researchRuns.map((run) => <button className={`w-full rounded-xl border p-3 text-left transition ${run.id === selectedResearchRunId ? "border-indigo-200 bg-indigo-50/75" : "border-white/80 bg-white/42 hover:bg-white/75"}`} key={run.id} onClick={() => { setResearchLoading(true); setResearchRun(undefined); setSelectedResearchRunId(run.id); }} type="button"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs font-semibold text-slate-800">{run.question}</p>{run.status === "completed" ? <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" /> : run.status === "failed" ? <XCircle className="size-3.5 shrink-0 text-red-500" /> : <Clock3 className="size-3.5 shrink-0 text-amber-500" />}</div><p className="mt-1 text-[10px] text-slate-500">{formatDateTime(run.startedAt)} · {run.plannerCombo} · {run.mode}</p></button>)}
+                    {!researchLoading && !researchError && researchRuns.length === 0 ? <EmptyInline label="Nenhuma pesquisa registrada nesta conversa." /> : null}
+                  </div>
+                </section>
+                <section className="glass min-w-0 rounded-[1.7rem] p-5 sm:p-7">
+                  {researchError ? <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><TriangleAlert className="size-3.5 shrink-0" />{researchError}</div> : null}
+                  {researchLoading ? <div className="flex min-h-56 items-center justify-center gap-3 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" />Carregando execução</div> : researchRun ? <ResearchRunInspector run={researchRun} /> : !researchError ? <div className="flex min-h-56 flex-col items-center justify-center text-center"><Globe2 className="size-6 text-slate-400" /><p className="mt-3 text-sm font-medium text-slate-700">Selecione uma pesquisa</p><p className="mt-1 text-xs text-slate-500">Planner, buscas, fontes, evidências e eventos aparecerão aqui.</p></div> : null}
+                </section>
+              </section>
             ) : null}
 
             {activeSection === "prompts" ? (

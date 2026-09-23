@@ -102,7 +102,10 @@ function setup(options: { enabled?: boolean; messages?: typeof later[]; dryRun?:
 
 async function waitForCompletion(update: jest.Mock): Promise<Record<string, unknown>> {
   for (let attempt = 0; attempt < 100; attempt++) {
-    if (update.mock.calls.length) return update.mock.results[0].value as Promise<Record<string, unknown>>;
+    const terminal = update.mock.calls.find(([input]) =>
+      ['completed', 'cancelled', 'failed'].includes(input.data?.status),
+    );
+    if (terminal) return terminal[0].data as Record<string, unknown>;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('background run did not finish');
@@ -125,10 +128,10 @@ describe('TemporalConsolidationService', () => {
       .mockResolvedValueOnce(settings)
       .mockResolvedValue({ ...settings, temporalConsolidationEnabled: false });
     await service.runManual();
-    await waitForCompletion(runUpdate);
+    const final = await waitForCompletion(runUpdate);
     expect(llm.chat).not.toHaveBeenCalled();
     expect(relationCreate).not.toHaveBeenCalled();
-    expect(runUpdate.mock.calls[0][0].data).toMatchObject({
+    expect(final).toMatchObject({
       status: 'cancelled', errorMessage: 'disabled', hasMore: true,
     });
   });
@@ -149,7 +152,7 @@ describe('TemporalConsolidationService', () => {
       setup({ messages: [later] });
     const response = await service.runManual();
     expect(response.run.status).toBe('running');
-    await waitForCompletion(runUpdate);
+    const final = await waitForCompletion(runUpdate);
     expect(llm.chat).toHaveBeenCalledTimes(2);
     expect(relationCreate).toHaveBeenCalledWith({ data: expect.objectContaining({
       predecessorMessageId: earlier.id,
@@ -160,7 +163,7 @@ describe('TemporalConsolidationService', () => {
     expect(checkpointUpdate).toHaveBeenCalledWith(expect.objectContaining({
       data: { lastMessageCreatedAt: later.createdAt, lastMessageId: later.id },
     }));
-    expect(runUpdate.mock.calls[0][0].data).toMatchObject({
+    expect(final).toMatchObject({
       status: 'completed', relationsCreated: 1, relationsProposed: 1,
       historicalRetrievalCalls: 1, chunksScanned: 1,
     });
@@ -262,13 +265,13 @@ describe('TemporalConsolidationService', () => {
     const { service, relationCreate, checkpointUpdate, runUpdate } =
       setup({ messages: [later] });
     await service.runManual({ dryRun: true });
-    await waitForCompletion(runUpdate);
+    const final = await waitForCompletion(runUpdate);
     expect(relationCreate).not.toHaveBeenCalled();
     const checkpointWrites = checkpointUpdate.mock.calls.filter(([arg]) =>
       'lastMessageId' in (arg.data ?? {}),
     );
     expect(checkpointWrites).toHaveLength(0);
-    expect(runUpdate.mock.calls[0][0].data).toMatchObject({
+    expect(final).toMatchObject({
       status: 'completed', relationsCreated: 0, relationsProposed: 1,
     });
   });

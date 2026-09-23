@@ -32,6 +32,17 @@ export type ApplicationSettingsResponse = {
   temporalConsolidationFallbackCombo: string | null;
   temporalConsolidationStartTime: string;
   temporalConsolidationEndTime: string;
+  researchEnabled: boolean;
+  researchSearchOrchestratorCombo: string;
+  researchDefaultMode: 'quick' | 'deep';
+  researchDefaultRecency: 'auto' | 'day' | 'week' | 'month' | 'year';
+  researchMaxSources: number;
+  researchMaxRounds: number;
+  researchMaxQueries: number;
+  researchSearchProvider: string;
+  researchExtractionProvider: string;
+  researchCacheEnabled: boolean;
+  researchBrowserFallbackEnabled: boolean;
 };
 
 export type ConversationChunkSettingsResponse = {

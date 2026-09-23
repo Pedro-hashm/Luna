@@ -4,10 +4,11 @@ import type {
 } from '../conversation-retrieval/types/conversation-retrieval.types';
 import type { ConversationContextResult } from '../../evidence/evidence.types';
 import type { ConversationEvidenceReference, ConversationRetrievalDiagnostics } from '../conversation-retrieval/types/conversation-retrieval.types';
+import type { ResearchResult } from '../../research/dto/research-result.dto';
 
-export const TOOL_NAMES = ['conversation_retrieval', 'conversation_context'] as const;
+export const TOOL_NAMES = ['conversation_retrieval', 'conversation_context', 'web_research'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
-export type ToolExecutionResult = ConversationRetrievalResult | ConversationContextResult;
+export type ToolExecutionResult = ConversationRetrievalResult | ConversationContextResult | ResearchResult;
 
 export type ToolContextMessage = {
   id?: string;
@@ -22,6 +23,7 @@ export type ToolExecutionContext = {
   conversationId?: string;
   currentMessageId?: string;
   currentDateTime?: string;
+  requestId?: string;
   messages: ToolContextMessage[];
 };
 

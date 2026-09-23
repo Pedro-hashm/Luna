@@ -172,6 +172,112 @@ const configSections: ConfigSection[] = [
     ],
   },
   {
+    id: "web-research",
+    eyebrow: "Pesquisa",
+    title: "Pesquisa na Web",
+    description: "Planejamento, fontes, extração e limites da pesquisa executada pelo Search Orchestrator.",
+    icon: Globe2,
+    fields: [
+      {
+        scope: "application",
+        key: "researchEnabled",
+        label: "Ativada",
+        description: "Permite que a Luna pesquise fontes da internet quando a conversa precisar de informações externas.",
+        kind: "checkbox",
+      },
+      {
+        scope: "application",
+        key: "researchSearchOrchestratorCombo",
+        label: "Search Orchestrator Combo",
+        description: "Combo enviado ao OmniRoute para planejar a pesquisa, independente do LLM de resposta.",
+        kind: "text",
+        placeholder: "local-reasoning",
+      },
+      {
+        scope: "application",
+        key: "researchDefaultMode",
+        label: "Modo padrão",
+        description: "Quick prioriza baixa latência; Deep permite rodadas adicionais dentro dos limites configurados.",
+        kind: "select",
+        options: [
+          { label: "Quick", value: "quick" },
+          { label: "Deep", value: "deep" },
+        ],
+      },
+      {
+        scope: "application",
+        key: "researchMaxSources",
+        label: "Máximo de fontes",
+        description: "Quantidade máxima de fontes selecionadas para extração em cada pesquisa.",
+        kind: "number",
+        min: 1,
+        max: 20,
+      },
+      {
+        scope: "application",
+        key: "researchMaxRounds",
+        label: "Máximo de rodadas",
+        description: "Limita novas buscas quando a verificação encontra lacunas ou conflitos.",
+        kind: "number",
+        min: 1,
+        max: 5,
+      },
+      {
+        scope: "application",
+        key: "researchMaxQueries",
+        label: "Máximo de queries",
+        description: "Limite de consultas que o planner pode gerar durante a execução.",
+        kind: "number",
+        min: 1,
+        max: 12,
+      },
+      {
+        scope: "application",
+        key: "researchDefaultRecency",
+        label: "Recência padrão",
+        description: "Janela temporal preferida para resultados de busca quando a pergunta não especifica uma.",
+        kind: "select",
+        options: [
+          { label: "Automático", value: "auto" },
+          { label: "Último dia", value: "day" },
+          { label: "Última semana", value: "week" },
+          { label: "Último mês", value: "month" },
+          { label: "Último ano", value: "year" },
+        ],
+      },
+      {
+        scope: "application",
+        key: "researchSearchProvider",
+        label: "Provider de busca",
+        description: "Provedor utilizado para descobrir páginas e metadados.",
+        kind: "select",
+        options: [{ label: "SearXNG", value: "searxng" }],
+      },
+      {
+        scope: "application",
+        key: "researchExtractionProvider",
+        label: "Provider de extração",
+        description: "Tenta conteúdo estático primeiro e usa o browser quando necessário e permitido.",
+        kind: "select",
+        options: [{ label: "Static → Browser", value: "static-with-browser-fallback" }],
+      },
+      {
+        scope: "application",
+        key: "researchCacheEnabled",
+        label: "Cache",
+        description: "Reutiliza resultados e documentos recentes quando a pesquisa permite cache.",
+        kind: "checkbox",
+      },
+      {
+        scope: "application",
+        key: "researchBrowserFallbackEnabled",
+        label: "Browser fallback",
+        description: "Permite tentar Chromium quando a extração HTTP não obtém conteúdo útil.",
+        kind: "checkbox",
+      },
+    ],
+  },
+  {
     id: "retrieval-engine",
     eyebrow: "Retrieval",
     title: "Retrieval Engine",
@@ -740,6 +846,26 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        <section className="glass mb-6 rounded-[1.7rem] border border-indigo-100/80 p-5 shadow-lg shadow-indigo-950/[0.03] sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-3xl">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-600">Pipeline observável</p>
+              <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Pesquisa na Web</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Configure o combo do Search Orchestrator e acompanhe planner, buscas, seleção de fontes, extração, evidências e verificação em cada execução.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a className="rounded-xl bg-indigo-600 px-3.5 py-2.5 text-xs font-semibold text-white transition hover:bg-indigo-500" href="#web-research">Configurar pesquisa</a>
+              <Link className="rounded-xl border border-white/80 bg-white/70 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-white" href="/observability?view=research">Ver execuções</Link>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <SmallSetting label="Estado" value={retrievalSettings?.researchEnabled == null ? "Indisponível" : retrievalSettings.researchEnabled ? "Ativada" : "Desativada"} />
+            <SmallSetting label="Planner combo" value={retrievalSettings?.researchSearchOrchestratorCombo || "Indisponível"} />
+            <SmallSetting label="Modo e limites" value={retrievalSettings?.researchDefaultMode && retrievalSettings.researchMaxSources && retrievalSettings.researchMaxRounds ? `${retrievalSettings.researchDefaultMode} · ${retrievalSettings.researchMaxSources} fontes · ${retrievalSettings.researchMaxRounds} rodadas` : "Indisponível"} />
+            <SmallSetting label="Busca e extração" value={retrievalSettings?.researchSearchProvider && retrievalSettings.researchExtractionProvider ? `${retrievalSettings.researchSearchProvider} · ${retrievalSettings.researchExtractionProvider}` : "Indisponível"} />
+          </div>
+        </section>
+
         {error ? (
           <div className="mb-5 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700">
             {error}
@@ -832,8 +958,11 @@ export default function SettingsPage() {
                               key={`${field.scope}.${field.key}`}
                               value={valueFor(field)}
                               comboSuggestions={[
+                                "local-reasoning",
+                                "paid-general",
                                 settings?.application.llmCombo,
                                 settings?.application.orchestratorCombo,
+                                settings?.application.researchSearchOrchestratorCombo,
                                 settings?.application.temporalConsolidationDefaultCombo,
                                 settings?.application.temporalConsolidationFallbackCombo,
                               ].filter((combo): combo is string => Boolean(combo))}
@@ -1040,7 +1169,7 @@ function TemporalConsolidationPanel({
       {isLoading ? <p className="text-xs text-slate-500">Carregando status...</p> : null}
       {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">{error}</p> : null}
 
-      {progressRun ? <TemporalRunProgress run={progressRun} /> : null}
+      {progressRun ? <TemporalRunProgress key={`${progressRun.id}:${progressRun.progressUpdatedAt ?? progressRun.startedAt}`} run={progressRun} /> : null}
 
       {selectedRun ? (
         <div className="rounded-xl border border-indigo-200 bg-white/80 p-3 text-xs text-slate-700">
@@ -1097,17 +1226,10 @@ const TEMPORAL_RUN_PHASES = [
 
 function TemporalRunProgress({ run }: { run: TemporalConsolidationRun }) {
   const [localNow, setLocalNow] = useState(() => Date.now());
-  const [clockAnchor, setClockAnchor] = useState(() => ({
+  const [clockAnchor] = useState(() => ({
     serverMs: Date.parse(run.progressUpdatedAt ?? run.startedAt),
     clientMs: Date.now(),
   }));
-
-  useEffect(() => {
-    setClockAnchor({
-      serverMs: Date.parse(run.progressUpdatedAt ?? run.startedAt),
-      clientMs: Date.now(),
-    });
-  }, [run.progressUpdatedAt, run.startedAt]);
 
   useEffect(() => {
     if (run.status !== "running") return;
@@ -1217,7 +1339,7 @@ function ConfigField({
   onChange: (value: string | number | boolean | null) => void;
 }) {
   const inputValue = value === null || value === undefined ? "" : String(value);
-  const comboListId = field.key.startsWith("temporalConsolidation") && field.key.endsWith("Combo")
+  const comboListId = (field.key.startsWith("temporalConsolidation") || field.key.startsWith("research")) && field.key.endsWith("Combo")
     ? `${field.key}-suggestions`
     : undefined;
 

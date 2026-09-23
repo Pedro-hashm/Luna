@@ -7,6 +7,7 @@ O Compose agora fica na raiz do projeto e usa o nome `luna-v2`. Ele sobe:
 - PostgreSQL 16 com pgvector;
 - Ollama usando a GPU, com `qwen3:4b-instruct`, `qwen3-embedding:0.6b` e o modelo de teste `qwen3.5:4b`;
 - uma etapa de `prisma migrate deploy`;
+- SearXNG para descoberta de fontes na rede interna;
 - API NestJS na porta `8000`;
 - frontend Next.js na porta `3000`.
 
@@ -48,7 +49,15 @@ docker rm lunav2-postgres
 pnpm docker:up
 ```
 
-Os novos containers ficam nomeados como `luna-v2-postgres`, `luna-v2-ollama`, `luna-v2-api` e `luna-v2-web`.
+Os containers principais ficam nomeados como `luna-v2-postgres`, `luna-v2-ollama`, `luna-v2-searxng`, `luna-v2-api` e `luna-v2-web`.
+
+### Pesquisa na Web
+
+A Luna usa um Search Orchestrator separado do orquestrador de conversa. O planner usa o combo `local-reasoning` por padrão via OmniRoute e gera uma consulta no modo Quick. O SearXNG descobre páginas; a API seleciona fontes, extrai texto por HTTP e usa Chromium como fallback para páginas dinâmicas. Fontes, trechos de evidência, decisões e eventos são gravados no PostgreSQL antes da síntese da resposta. Respostas HTTP bloqueadas e páginas sem evidência útil não viram citações.
+
+As opções ficam em **Configurações → Pesquisa na Web**: ativação, combo do planner, modo, recência, limites, cache e fallback de browser. Cada execução pode ser examinada em **Visibilidade**, com prompt e modelo do planner, queries, fontes, extração, evidências, verificação, erros e linha do tempo. A API também expõe `GET /research/conversations/:conversationId/runs` e `GET /research/runs/:runId`.
+
+`SEARXNG_BASE_URL`, `SEARXNG_TIMEOUT_MS`, `WEB_EXTRACT_TIMEOUT_MS` e `WEB_EXTRACT_MAX_BYTES` podem ser definidos no `.env`. SearXNG não precisa de porta pública: a API o alcança pelo nome `searxng` no Compose. O browser e suas dependências são instalados na imagem da API durante o build.
 
 ### OmniRoute
 

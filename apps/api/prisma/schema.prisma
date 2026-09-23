@@ -67,6 +67,17 @@ model ApplicationSettings {
   temporalConsolidationFallbackCombo String? @default("paid-general") @map("temporal_consolidation_fallback_combo")
   temporalConsolidationStartTime     String  @default("04:30") @map("temporal_consolidation_start_time")
   temporalConsolidationEndTime       String  @default("08:30") @map("temporal_consolidation_end_time")
+  researchEnabled                    Boolean @default(true) @map("research_enabled")
+  researchSearchOrchestratorCombo    String  @default("local-reasoning") @map("research_search_orchestrator_combo")
+  researchDefaultMode                String  @default("quick") @map("research_default_mode")
+  researchDefaultRecency             String  @default("auto") @map("research_default_recency")
+  researchMaxSources                 Int     @default(5) @map("research_max_sources")
+  researchMaxRounds                  Int     @default(2) @map("research_max_rounds")
+  researchMaxQueries                 Int     @default(3) @map("research_max_queries")
+  researchSearchProvider             String  @default("searxng") @map("research_search_provider")
+  researchExtractionProvider         String  @default("static-with-browser-fallback") @map("research_extraction_provider")
+  researchCacheEnabled               Boolean @default(true) @map("research_cache_enabled")
+  researchBrowserFallbackEnabled     Boolean @default(true) @map("research_browser_fallback_enabled")
   createdAt                       DateTime @default(now()) @map("created_at")
   updatedAt                       DateTime @updatedAt @map("updated_at")
 
@@ -83,6 +94,7 @@ model Conversation {
   messages         Message[]
   chunks           ConversationChunk[]
   observabilityTraces ObservabilityTrace[]
+  researchRuns     ResearchRun[]
 
   @@map("conversations")
 }
@@ -101,6 +113,7 @@ model Message {
   evidences          ConversationEvidence[]
   temporalPredecessorRelation TemporalRelation? @relation("TemporalPredecessor")
   temporalSuccessorRelations  TemporalRelation[] @relation("TemporalSuccessor")
+  researchRuns      ResearchRun[]
 
   @@index([conversationId, createdAt])
   @@map("messages")
@@ -260,4 +273,80 @@ model TemporalConsolidationRun {
   @@index([startedAt])
   @@index([status, startedAt])
   @@map("temporal_consolidation_runs")
+}
+
+model ResearchRun {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  messageId      String?  @map("message_id") @db.Uuid
+  requestId      String?  @map("request_id")
+  question       String   @db.Text
+  status         String
+  mode           String
+  plannerCombo   String   @map("planner_combo")
+  summaryContext String?  @map("summary_context") @db.Text
+  metadata       Json?
+  startedAt      DateTime @default(now()) @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message        Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  events         ResearchEvent[]
+  sources        ResearchSource[]
+  evidence       ResearchEvidence[]
+
+  @@index([conversationId, startedAt])
+  @@index([messageId])
+  @@map("research_runs")
+}
+
+model ResearchEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  runId     String   @map("run_id") @db.Uuid
+  sequence  Int
+  type      String
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+  run       ResearchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
+  @@map("research_events")
+}
+
+model ResearchSource {
+  id               String
+  runId            String   @map("run_id") @db.Uuid
+  normalizedUrl    String   @map("normalized_url") @db.Text
+  url              String   @db.Text
+  title            String   @db.Text
+  domain           String
+  sourceType       String   @map("source_type")
+  rank             Int?
+  publishedAt      DateTime? @map("published_at")
+  retrievedAt      DateTime @map("retrieved_at")
+  extractionMethod String?  @map("extraction_method")
+  metadata         Json?
+  run              ResearchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  evidence         ResearchEvidence[]
+
+  @@id([runId, id])
+  @@unique([runId, normalizedUrl])
+  @@index([runId])
+  @@map("research_sources")
+}
+
+model ResearchEvidence {
+  id        String   @id
+  runId     String   @map("run_id") @db.Uuid
+  sourceId  String   @map("source_id")
+  text      String   @db.Text
+  location  String?  @db.Text
+  type      String
+  createdAt DateTime @default(now()) @map("created_at")
+  run       ResearchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  source    ResearchSource @relation(fields: [runId, sourceId], references: [runId, id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([sourceId])
+  @@map("research_evidence")
 }
