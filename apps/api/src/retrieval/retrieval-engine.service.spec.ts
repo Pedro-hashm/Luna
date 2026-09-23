@@ -136,15 +136,44 @@ describe('RetrievalEngine', () => {
     expect(result.diagnostics.candidates[0]?.excludedBy).toBe('relevance_threshold');
   });
 
+  it('keeps fused candidates when the reranker fails', async () => {
+    const vector = { retrieve: jest.fn().mockResolvedValue([
+      candidate('A', 'Tokyo Ghoul is a manga.'),
+      candidate('B', 'Tokyo Ghoul has an anime adaptation.'),
+    ]) } as jest.Mocked<Retriever>;
+    const lexical = { retrieve: jest.fn().mockResolvedValue([]) } as jest.Mocked<Retriever>;
+    const filtered = { retrieve: jest.fn().mockResolvedValue([]) } as jest.Mocked<Retriever>;
+    const ranker = { rank: jest.fn().mockRejectedValue(new Error('reranker HTTP 500')) };
+
+    const result = await engineFor(vector, lexical, filtered, ranker).retrieve(
+      query,
+      config({ rerankerEnabled: true, rerankerThreshold: 0.9 }),
+    );
+
+    expect(result.candidates.map((item) => item.id)).toEqual(['A', 'B']);
+    expect(result.diagnostics.fallback).toBe('reranker_failed');
+    expect(result.diagnostics.reranker).toMatchObject({
+      inputCount: 2,
+      outputCount: 0,
+      threshold: null,
+    });
+    expect(result.diagnostics.stageResults.reranker).toEqual([]);
+    expect(result.diagnostics.counts.relevanceFilter).toBe(2);
+    expect(result.diagnostics.candidates.every((item) => item.excludedBy === undefined)).toBe(true);
+  });
+
   it('uses date filters without requiring an embedding query', async () => {
     const vector = { retrieve: jest.fn() } as jest.Mocked<Retriever>;
     const lexical = { retrieve: jest.fn() } as jest.Mocked<Retriever>;
-    const filtered = { retrieve: jest.fn().mockResolvedValue([candidate('today', 'Discussed the launch.')]) } as jest.Mocked<Retriever>;
+    const filtered = { retrieve: jest.fn().mockResolvedValue([
+      candidate('today', 'Discussed the launch.'),
+      candidate('today-2', 'Discussed the roadmap.'),
+    ]) } as jest.Mocked<Retriever>;
     const ranker = { rank: jest.fn() };
     const engine = engineFor(vector, lexical, filtered, ranker);
 
     const result = await engine.retrieve(
-      { query: undefined, filters: { dateFrom: new Date('2026-09-22T00:00:00.000Z') }, limit: 5, maxContextTokens: 100 },
+      { query: undefined, filters: { dateFrom: new Date('2026-09-22T00:00:00.000Z') }, limit: 1, maxContextTokens: 100 },
       config(),
     );
 
@@ -152,7 +181,7 @@ describe('RetrievalEngine', () => {
     expect(vector.retrieve).not.toHaveBeenCalled();
     expect(lexical.retrieve).not.toHaveBeenCalled();
     expect(ranker.rank).not.toHaveBeenCalled();
-    expect(result.candidates.map((item) => item.id)).toEqual(['today']);
+    expect(result.candidates.map((item) => item.id)).toEqual(['today', 'today-2']);
   });
 
   it('switches the selected reranker through configuration', async () => {

@@ -21,7 +21,7 @@ export class OmnirouteService {
             max_tokens: llmRequest.maxTokens,
         });
 
-        this.logger.log(`Payload enviado ao OmniRoute:\n${requestBody}`);
+        this.logger.debug(`OmniRoute request: combo=${llmRequest.combo}, messages=${llmRequest.messages.length}, bytes=${requestBody.length}`);
 
         const response = await fetch(`${this.baseUrl}/chat/completions`, {
             method: "POST",
@@ -29,6 +29,7 @@ export class OmnirouteService {
                 "Content-Type": "application/json",
             },
             body: requestBody,
+            signal: llmRequest.signal,
         });
 
         if (!response.ok) {

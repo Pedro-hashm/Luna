@@ -245,6 +245,14 @@ export class ConversationService {
       const completedAt = new Date();
       const estimatedInputTokens =
         this.contextManager.estimateMessagesTokens(recentMessages);
+      const failurePrompt = this.failurePromptSnapshot(error);
+      const failureSnapshot: ContextSnapshot = failurePrompt
+        ? {
+            ...initialSnapshot,
+            promptTarget: failurePrompt.target,
+            promptMessages: failurePrompt.messages,
+          }
+        : initialSnapshot;
 
       await this.observabilityService.recordTrace({
         requestId,
@@ -260,7 +268,7 @@ export class ConversationService {
           context: contextStageMs,
           userAgent: Date.now() - userAgentStartedAt,
         },
-        contextSnapshot: initialSnapshot,
+        contextSnapshot: failureSnapshot,
         errorMessage: error instanceof Error ? error.message : 'unknown error',
         startedAt: traceStartedAt,
         completedAt,
@@ -424,6 +432,12 @@ export class ConversationService {
     }));
 
     const snapshot: ContextSnapshot = {
+      ...(lunaPromptMessages
+        ? {
+            promptTarget: 'luna',
+            promptMessages: lunaPromptMessages,
+          }
+        : {}),
       immediate: { messages, tokens: immediateTokens },
       memory: { items: [], tokens: 0 },
       tools: { items: toolExecutions, tokens: toolsTokens },
@@ -467,6 +481,29 @@ export class ConversationService {
     }
 
     return snapshot;
+  }
+
+  private failurePromptSnapshot(
+    error: unknown,
+  ): { target: 'luna'; messages: ChatMessage[] } | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const prompt = (error as {
+      observabilityPrompt?: { target?: unknown; messages?: unknown };
+    }).observabilityPrompt;
+    if (
+      prompt?.target !== 'luna' ||
+      !Array.isArray(prompt.messages) ||
+      !prompt.messages.every(
+        (message) =>
+          message &&
+          typeof message === 'object' &&
+          typeof (message as Record<string, unknown>).role === 'string' &&
+          typeof (message as Record<string, unknown>).content === 'string',
+      )
+    ) {
+      return undefined;
+    }
+    return { target: 'luna', messages: prompt.messages as ChatMessage[] };
   }
 
   private getLunaPromptSections(promptMessages?: ChatMessage[]): {

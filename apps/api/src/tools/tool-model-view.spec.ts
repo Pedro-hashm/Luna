@@ -80,4 +80,34 @@ describe('toToolExecutionModelView', () => {
     expect(serialized).not.toContain('message-internal-id');
     expect(serialized).not.toContain('referenceCount');
   });
+
+  it('shows temporal successor evidence without exposing message IDs', () => {
+    const view = toToolExecutionModelView({
+      tool: 'conversation_retrieval',
+      arguments: { query: 'nome atual' },
+      status: 'success',
+      result: {
+        query: 'nome atual',
+        temporalMode: 'current',
+        results: [{
+          conversationId: '9b137f99-72b2-4da3-85d3-164e3a80e57a',
+          chunkId: '20e6de7d-8da0-4c13-af19-8c1e641c2707',
+          status: 'closed', score: 0.9, content: 'Nebula 47',
+          startMessageId: 'old-message-id', endMessageId: 'old-message-id',
+          tokenCount: 3,
+          timeRange: { start: '2026-09-12T10:00:00-03:00', end: '2026-09-12T10:00:00-03:00', timeZone: 'America/Sao_Paulo' },
+          temporalChanges: [{
+            predecessorMessageId: 'old-message-id', subject: 'nome do projeto',
+            type: 'SUPERSEDES', oldValue: 'Nebula 47', newValue: 'Nebula 48', chainComplete: true,
+            successors: [{ messageId: 'new-message-id', role: 'user', content: 'Agora é Nebula 48', createdAt: '2026-09-19T10:00:00-03:00', type: 'SUPERSEDES', newValue: 'Nebula 48' }],
+          }],
+        }],
+      },
+    });
+    const serialized = JSON.stringify(view);
+    expect(serialized).toContain('Nebula 48');
+    expect(serialized).toContain('superseded');
+    expect(serialized).not.toContain('old-message-id');
+    expect(serialized).not.toContain('new-message-id');
+  });
 });

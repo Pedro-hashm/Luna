@@ -12,6 +12,9 @@ describe('SettingsService Conversation Evidence setting', () => {
       retrievalRerankerEnabled: false, retrievalRerankerModel: 'cross-encoder/ettin-reranker-17m-v1',
       retrievalRerankerTopK: 30, retrievalRerankerThreshold: 8, retrievalDeduplicationEnabled: true,
       retrievalDeduplicationThreshold: 0.85, conversationEvidenceEnabled: false,
+      temporalConsolidationEnabled: false, temporalConsolidationDefaultCombo: null,
+      temporalConsolidationFallbackCombo: null, temporalConsolidationStartTime: '04:30',
+      temporalConsolidationEndTime: '08:30',
     };
     const update = jest.fn().mockImplementation(({ data }) => {
       application = { ...application, ...data };
@@ -49,5 +52,51 @@ describe('SettingsService Conversation Evidence setting', () => {
     await expect(service.updateSettings({
       application: { conversationEvidenceEnabled: 'true' as unknown as boolean },
     })).rejects.toThrow('conversationEvidenceEnabled must be a boolean');
+  });
+
+  it('persists the temporal consolidation toggle in both directions', async () => {
+    const { service, update } = harness();
+
+    const enabled = await service.updateSettings({ application: { temporalConsolidationEnabled: true } });
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ data: { temporalConsolidationEnabled: true } }));
+    expect(enabled.application.temporalConsolidationEnabled).toBe(true);
+
+    const disabled = await service.updateSettings({ application: { temporalConsolidationEnabled: false } });
+    expect(disabled.application.temporalConsolidationEnabled).toBe(false);
+  });
+
+  it('saves optional combos and a valid local processing window', async () => {
+    const { service, update } = harness();
+
+    const result = await service.updateSettings({ application: {
+      temporalConsolidationDefaultCombo: '  local-configured  ',
+      temporalConsolidationFallbackCombo: 'paid-configured',
+      temporalConsolidationStartTime: '05:15',
+      temporalConsolidationEndTime: '09:45',
+    } });
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ data: {
+      temporalConsolidationDefaultCombo: 'local-configured',
+      temporalConsolidationFallbackCombo: 'paid-configured',
+      temporalConsolidationStartTime: '05:15',
+      temporalConsolidationEndTime: '09:45',
+    } }));
+    expect(result.application.temporalConsolidationFallbackCombo).toBe('paid-configured');
+
+    const cleared = await service.updateSettings({ application: { temporalConsolidationFallbackCombo: null } });
+    expect(cleared.application.temporalConsolidationFallbackCombo).toBeNull();
+  });
+
+  it('rejects invalid temporal consolidation settings', async () => {
+    const { service } = harness();
+
+    await expect(service.updateSettings({ application: {
+      temporalConsolidationEnabled: 'true' as unknown as boolean,
+    } })).rejects.toThrow('temporalConsolidationEnabled must be a boolean');
+    await expect(service.updateSettings({ application: {
+      temporalConsolidationDefaultCombo: '',
+    } })).rejects.toThrow('temporalConsolidationDefaultCombo must be a non-empty string');
+    await expect(service.updateSettings({ application: {
+      temporalConsolidationStartTime: '24:00',
+    } })).rejects.toThrow('temporalConsolidationStartTime must be a time in HH:mm format');
   });
 });

@@ -29,6 +29,11 @@ enum ObservabilityTraceStatus {
     timeout
 }
 
+enum TemporalRelationType {
+    SUPERSEDES
+    CORRECTS
+}
+
 model ApplicationSettings {
   id                              Int      @id @default(1)
   llmCombo                        String   @default("local-general") @map("llm_combo")
@@ -57,6 +62,11 @@ model ApplicationSettings {
   retrievalDeduplicationEnabled   Boolean  @default(true) @map("retrieval_deduplication_enabled")
   retrievalDeduplicationThreshold Float    @default(0.85) @map("retrieval_deduplication_threshold")
   conversationEvidenceEnabled     Boolean  @default(false) @map("conversation_evidence_enabled")
+  temporalConsolidationEnabled       Boolean @default(false) @map("temporal_consolidation_enabled")
+  temporalConsolidationDefaultCombo  String? @default("local-general") @map("temporal_consolidation_default_combo")
+  temporalConsolidationFallbackCombo String? @default("paid-general") @map("temporal_consolidation_fallback_combo")
+  temporalConsolidationStartTime     String  @default("04:30") @map("temporal_consolidation_start_time")
+  temporalConsolidationEndTime       String  @default("08:30") @map("temporal_consolidation_end_time")
   createdAt                       DateTime @default(now()) @map("created_at")
   updatedAt                       DateTime @updatedAt @map("updated_at")
 
@@ -89,6 +99,8 @@ model Message {
   chunksEndingHere   ConversationChunk[] @relation("ChunkEndMessage")
   observabilityTraces ObservabilityTrace[] @relation("MessageResponseTrace")
   evidences          ConversationEvidence[]
+  temporalPredecessorRelation TemporalRelation? @relation("TemporalPredecessor")
+  temporalSuccessorRelations  TemporalRelation[] @relation("TemporalSuccessor")
 
   @@index([conversationId, createdAt])
   @@map("messages")
@@ -173,4 +185,79 @@ model ObservabilityTrace {
   @@index([conversationId, createdAt])
   @@index([kind, status, createdAt])
   @@map("observability_traces")
+}
+
+model TemporalRelation {
+  id                   String               @id @default(uuid()) @db.Uuid
+  predecessorMessageId String               @unique @map("predecessor_message_id") @db.Uuid
+  successorMessageId   String               @map("successor_message_id") @db.Uuid
+  type                 TemporalRelationType
+  subject              String               @db.Text
+  oldValue             String               @map("old_value") @db.Text
+  newValue             String               @map("new_value") @db.Text
+  confidence           Float
+  reason               String               @db.Text
+  createdAt            DateTime             @default(now()) @map("created_at")
+  predecessorMessage   Message              @relation("TemporalPredecessor", fields: [predecessorMessageId], references: [id], onDelete: Cascade)
+  successorMessage     Message              @relation("TemporalSuccessor", fields: [successorMessageId], references: [id], onDelete: Cascade)
+
+  @@index([successorMessageId])
+  @@index([createdAt])
+  @@map("temporal_relations")
+}
+
+model TemporalConsolidationCheckpoint {
+  id                   Int      @id @default(1)
+  lastMessageCreatedAt DateTime? @map("last_message_created_at")
+  lastMessageId        String?  @map("last_message_id") @db.Uuid
+  activeRunId          String?  @map("active_run_id") @db.Uuid
+  lockExpiresAt        DateTime? @map("lock_expires_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("temporal_consolidation_checkpoint")
+}
+
+model TemporalConsolidationRun {
+  id                            String   @id @default(uuid()) @db.Uuid
+  trigger                       String
+  status                        String
+  currentPhase                  String?  @map("current_phase")
+  currentPhaseStartedAt         DateTime? @map("current_phase_started_at")
+  progressUpdatedAt             DateTime? @map("progress_updated_at")
+  phaseDurationsMs              Json     @default("{}") @map("phase_durations_ms")
+  dryRun                        Boolean  @default(false) @map("dry_run")
+  startedAt                     DateTime @default(now()) @map("started_at")
+  finishedAt                    DateTime? @map("finished_at")
+  defaultCombo                  String?  @map("default_combo")
+  fallbackCombo                 String?  @map("fallback_combo")
+  actualCombo                   String?  @map("actual_combo")
+  provider                      String?
+  model                         String?
+  messagesScanned               Int      @default(0) @map("messages_scanned")
+  chunksScanned                 Int      @default(0) @map("chunks_scanned")
+  candidatesDetected            Int      @default(0) @map("candidates_detected")
+  llmCalls                      Int      @default(0) @map("llm_calls")
+  historicalRetrievalCalls      Int      @default(0) @map("historical_retrieval_calls")
+  relationsProposed             Int      @default(0) @map("relations_proposed")
+  relationsCreated              Int      @default(0) @map("relations_created")
+  relationsRejected             Int      @default(0) @map("relations_rejected")
+  relationsSkipped              Int      @default(0) @map("relations_skipped")
+  fallbackUsed                  Boolean  @default(false) @map("fallback_used")
+  fallbackReason                String?  @map("fallback_reason")
+  retryCount                    Int      @default(0) @map("retry_count")
+  errorCount                    Int      @default(0) @map("error_count")
+  candidateDetectionLatencyMs   Int      @default(0) @map("candidate_detection_latency_ms")
+  llmLatencyMs                  Int      @default(0) @map("llm_latency_ms")
+  historicalRetrievalLatencyMs  Int      @default(0) @map("historical_retrieval_latency_ms")
+  validationLatencyMs           Int      @default(0) @map("validation_latency_ms")
+  persistenceLatencyMs          Int      @default(0) @map("persistence_latency_ms")
+  rejectionReasons              Json?    @map("rejection_reasons")
+  proposed                      Json?
+  rejected                      Json?
+  hasMore                       Boolean  @default(false) @map("has_more")
+  errorMessage                  String?  @map("error_message") @db.Text
+
+  @@index([startedAt])
+  @@index([status, startedAt])
+  @@map("temporal_consolidation_runs")
 }

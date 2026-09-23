@@ -139,6 +139,21 @@ describe('OrchestratorService', () => {
     expect(prompt).not.toContain(chunkId);
   });
 
+  it('persists the exact ordered prompt sent to the Orchestrator', async () => {
+    const harness = createHarness([llmResponse('{"type":"finalize"}')]);
+
+    await harness.service.execute(orchestratorContext());
+
+    const sentMessages = harness.chat.mock.calls[0]?.[0].messages;
+    expect(harness.recordTrace).toHaveBeenCalledWith(expect.objectContaining({
+      contextSnapshot: expect.objectContaining({
+        promptTarget: 'orchestrator',
+        promptIteration: 1,
+        promptMessages: sentMessages,
+      }),
+    }));
+  });
+
   it.each([
     ['o que falamos antes?', 'before'],
     ['e depois?', 'after'],
@@ -177,6 +192,7 @@ describe('OrchestratorService', () => {
 function createHarness(decisions: LlmResponse[], evidenceEnabled = false) {
   const chat = jest.fn<Promise<LlmResponse>, [LlmRequest]>();
   const execute = jest.fn<Promise<ExecuteToolResponse>, [ExecuteToolRequest]>();
+  const recordTrace = jest.fn().mockResolvedValue(undefined);
 
   for (const decision of decisions) {
     chat.mockResolvedValueOnce(decision);
@@ -213,10 +229,10 @@ function createHarness(decisions: LlmResponse[], evidenceEnabled = false) {
       ]),
       has: jest.fn().mockReturnValue(true),
     } as never,
-    { recordTrace: jest.fn().mockResolvedValue(undefined) } as never,
+    { recordTrace } as never,
   );
 
-  return { service, chat, execute };
+  return { service, chat, execute, recordTrace };
 }
 
 function contextToolResponse(direction: string): ExecuteToolResponse {

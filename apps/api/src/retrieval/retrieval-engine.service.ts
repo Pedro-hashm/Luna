@@ -195,29 +195,39 @@ export class RetrievalEngine {
       }
 
       let rerankerScores = new Map<string, number>();
+      let rerankerApplied = false;
 
       if (query.query && config.rerankerEnabled && candidates.length > 0) {
         const rerankerInput = candidates.slice(0, config.rerankerTopK);
         diagnostics.stageResults.reranker_input = this.traceCandidates(rerankerInput);
         diagnostics.reranker.inputCount = rerankerInput.length;
-        const ranked = await stage(
-          'reranker',
-          () => this.ranker.rank(query.query!, rerankerInput, config.rerankerModel),
-          (result) => result.length,
-        );
-        diagnostics.reranker.outputCount = ranked.length;
-        rerankerScores = new Map(
-          ranked.flatMap((candidate) =>
-            candidate.rerankerScore === undefined
-              ? []
-              : [[candidate.id, candidate.rerankerScore] as [string, number]],
-          ),
-        );
-        diagnostics.stageResults.reranker = this.traceCandidates(ranked);
-        for (const candidate of candidates.slice(config.rerankerTopK)) {
-          rerankerPoolExcluded.add(candidate.id);
+        try {
+          const ranked = await stage(
+            'reranker',
+            () => this.ranker.rank(query.query!, rerankerInput, config.rerankerModel),
+            (result) => result.length,
+          );
+          diagnostics.reranker.outputCount = ranked.length;
+          rerankerScores = new Map(
+            ranked.flatMap((candidate) =>
+              candidate.rerankerScore === undefined
+                ? []
+                : [[candidate.id, candidate.rerankerScore] as [string, number]],
+            ),
+          );
+          diagnostics.stageResults.reranker = this.traceCandidates(ranked);
+          for (const candidate of candidates.slice(config.rerankerTopK)) {
+            rerankerPoolExcluded.add(candidate.id);
+          }
+          candidates = ranked;
+          rerankerApplied = true;
+        } catch {
+          // Keep the already ranked vector/lexical candidates when the local
+          // reranker is unavailable. They have no reranker scores, so its
+          // relevance threshold must not run for this request.
+          diagnostics.stageResults.reranker = [];
+          diagnostics.reranker.threshold = null;
         }
-        candidates = ranked;
       } else {
         diagnostics.stageResults.reranker_input = [];
         diagnostics.stageResults.reranker = [];
@@ -228,7 +238,7 @@ export class RetrievalEngine {
       const beforeThreshold = candidates.length;
       const relevanceFilterStartedAt = Date.now();
       const thresholdRejected = new Set<string>();
-      if (config.rerankerEnabled && query.query) {
+      if (rerankerApplied) {
         candidates = candidates.filter((candidate) => {
           const score = candidate.rerankerScore;
           const accepted = score !== undefined && score >= config.rerankerThreshold;
@@ -248,7 +258,7 @@ export class RetrievalEngine {
           event: 'retrieval.relevance_filter.completed',
           before: beforeThreshold,
           after: candidates.length,
-          threshold: config.rerankerEnabled ? config.rerankerThreshold : null,
+          threshold: rerankerApplied ? config.rerankerThreshold : null,
           latencyMs: diagnostics.stages.relevance_filter.latencyMs,
         }),
       );
@@ -280,7 +290,7 @@ export class RetrievalEngine {
       const compilerStartedAt = Date.now();
       const compiled = this.compiler.compile(
         candidates,
-        query.limit,
+        query.query ? query.limit : Math.max(query.limit, config.candidatePoolTopK),
         query.maxContextTokens,
       );
       const finalRanks = new Map(

@@ -1,0 +1,362 @@
+{
+  "generatedAt": "2026-09-23T14:24:35.864Z",
+  "source": "synthetic controlled cases; no conversation data",
+  "promptVersion": 1,
+  "cases": [
+    {
+      "name": "explicit_change",
+      "stage": "extract",
+      "input": "{\"messageId\":\"44444444-4444-4444-8444-444444444444\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Mudamos o nome. Agora é Nebula 48.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue MUST be an exact value explicitly written in this new message; otherwise use the JSON null token (not the string \"null\"), including when the change is clear but the former value is unstated. Never use placeholders such as \"old name\", \"previous version\", or \"antigo nome\" as oldValue. newValue MUST be an exact value explicitly written in this new message. subject MUST copy the shortest phrase in the message naming the changed property. Do not add generic nouns or an entity that is absent. For the message \"Mudamos o nome. Agora é Nebula 48.\", subject is exactly \"nome\", never \"nome do objeto\" or \"nome do produto\". confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "SUPERSEDES",
+        "subject": "nome",
+        "oldValue": null,
+        "newValue": "Nebula 48"
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"type\":\"SUPERSEDES\",\"subject\":\"nome\",\"oldValue\":null,\"newValue\":\"Nebula 48\",\"confidence\":1,\"reason\":\"The message explicitly states the name has changed to 'Nebula 48' without mentioning a previous name.\"}",
+      "usage": {
+        "inputTokens": 382,
+        "outputTokens": 56,
+        "totalTokens": 438
+      },
+      "normalizedOutput": {
+        "type": "SUPERSEDES",
+        "subject": "nome",
+        "oldValue": null,
+        "newValue": "Nebula 48",
+        "confidence": 1,
+        "reason": "The message explicitly states the name has changed to 'Nebula 48' without mentioning a previous name."
+      },
+      "observed": {
+        "type": "SUPERSEDES",
+        "subject": "nome",
+        "oldValue": null,
+        "newValue": "Nebula 48"
+      },
+      "passed": true
+    },
+    {
+      "name": "no_change",
+      "stage": "extract",
+      "input": "{\"messageId\":\"55555555-5555-4555-8555-555555555555\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Hoje trabalhei no Nebula 47.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue MUST be an exact value explicitly written in this new message; otherwise use the JSON null token (not the string \"null\"), including when the change is clear but the former value is unstated. Never use placeholders such as \"old name\", \"previous version\", or \"antigo nome\" as oldValue. newValue MUST be an exact value explicitly written in this new message. subject MUST copy the shortest phrase in the message naming the changed property. Do not add generic nouns or an entity that is absent. For the message \"Mudamos o nome. Agora é Nebula 48.\", subject is exactly \"nome\", never \"nome do objeto\" or \"nome do produto\". confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "NONE",
+        "oldValue": null,
+        "newValue": null
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"type\":\"NONE\",\"subject\":null,\"oldValue\":null,\"newValue\":null,\"confidence\":1,\"reason\":\"The message only states current activity without any explicit change to a fact or property.\"}",
+      "usage": {
+        "inputTokens": 378,
+        "outputTokens": 42,
+        "totalTokens": 420
+      },
+      "normalizedOutput": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null,
+        "confidence": 1,
+        "reason": "The message only states current activity without any explicit change to a fact or property."
+      },
+      "observed": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null
+      },
+      "passed": true
+    },
+    {
+      "name": "mention_without_relation",
+      "stage": "extract",
+      "input": "{\"messageId\":\"66666666-6666-4666-8666-666666666666\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Hoje falei sobre o Nebula 48.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue MUST be an exact value explicitly written in this new message; otherwise use the JSON null token (not the string \"null\"), including when the change is clear but the former value is unstated. Never use placeholders such as \"old name\", \"previous version\", or \"antigo nome\" as oldValue. newValue MUST be an exact value explicitly written in this new message. subject MUST copy the shortest phrase in the message naming the changed property. Do not add generic nouns or an entity that is absent. For the message \"Mudamos o nome. Agora é Nebula 48.\", subject is exactly \"nome\", never \"nome do objeto\" or \"nome do produto\". confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "NONE",
+        "oldValue": null,
+        "newValue": null
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"type\":\"NONE\",\"subject\":null,\"oldValue\":null,\"newValue\":null,\"confidence\":1,\"reason\":\"The message only mentions a topic without any explicit change to facts or values.\"}",
+      "usage": {
+        "inputTokens": 380,
+        "outputTokens": 41,
+        "totalTokens": 421
+      },
+      "normalizedOutput": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null,
+        "confidence": 1,
+        "reason": "The message only mentions a topic without any explicit change to facts or values."
+      },
+      "observed": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null
+      },
+      "passed": true
+    },
+    {
+      "name": "correction",
+      "stage": "extract",
+      "input": "{\"messageId\":\"77777777-7777-4777-8777-777777777777\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Eu disse que era PostgreSQL, mas na verdade estamos usando SQLite.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue MUST be an exact value explicitly written in this new message; otherwise use the JSON null token (not the string \"null\"), including when the change is clear but the former value is unstated. Never use placeholders such as \"old name\", \"previous version\", or \"antigo nome\" as oldValue. newValue MUST be an exact value explicitly written in this new message. subject MUST copy the shortest phrase in the message naming the changed property. Do not add generic nouns or an entity that is absent. For the message \"Mudamos o nome. Agora é Nebula 48.\", subject is exactly \"nome\", never \"nome do objeto\" or \"nome do produto\". confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "CORRECTS",
+        "oldValue": "PostgreSQL",
+        "newValue": "SQLite"
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"type\":\"CORRECTS\",\"subject\":\"database\",\"oldValue\":\"PostgreSQL\",\"newValue\":\"SQLite\",\"confidence\":1,\"reason\":\"The speaker explicitly corrects the earlier claim about the database system by stating the current one is SQLite.\"}",
+      "usage": {
+        "inputTokens": 380,
+        "outputTokens": 49,
+        "totalTokens": 429
+      },
+      "normalizedOutput": {
+        "type": "CORRECTS",
+        "subject": "database",
+        "oldValue": "PostgreSQL",
+        "newValue": "SQLite",
+        "confidence": 1,
+        "reason": "The speaker explicitly corrects the earlier claim about the database system by stating the current one is SQLite."
+      },
+      "observed": {
+        "type": "CORRECTS",
+        "subject": "database",
+        "oldValue": "PostgreSQL",
+        "newValue": "SQLite"
+      },
+      "passed": true
+    },
+    {
+      "name": "ambiguous_now",
+      "stage": "extract",
+      "input": "{\"messageId\":\"88888888-8888-4888-8888-888888888888\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Estou olhando o Nebula 48 agora.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue MUST be an exact value explicitly written in this new message; otherwise use the JSON null token (not the string \"null\"), including when the change is clear but the former value is unstated. Never use placeholders such as \"old name\", \"previous version\", or \"antigo nome\" as oldValue. newValue MUST be an exact value explicitly written in this new message. subject MUST copy the shortest phrase in the message naming the changed property. Do not add generic nouns or an entity that is absent. For the message \"Mudamos o nome. Agora é Nebula 48.\", subject is exactly \"nome\", never \"nome do objeto\" or \"nome do produto\". confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "NONE",
+        "oldValue": null,
+        "newValue": null
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"type\":\"NONE\",\"subject\":null,\"oldValue\":null,\"newValue\":null,\"confidence\":0,\"reason\":\"The message does not indicate any change to a fact or state.\"}",
+      "usage": {
+        "inputTokens": 380,
+        "outputTokens": 39,
+        "totalTokens": 419
+      },
+      "normalizedOutput": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null,
+        "confidence": 0,
+        "reason": "The message does not indicate any change to a fact or state."
+      },
+      "observed": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null
+      },
+      "passed": true
+    },
+    {
+      "name": "keyword_false_positive",
+      "stage": "extract",
+      "input": "{\"messageId\":\"99999999-9999-4999-8999-999999999999\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Agora vamos falar sobre o projeto; o novo capítulo discute mudanças.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue MUST be an exact value explicitly written in this new message; otherwise use the JSON null token (not the string \"null\"), including when the change is clear but the former value is unstated. Never use placeholders such as \"old name\", \"previous version\", or \"antigo nome\" as oldValue. newValue MUST be an exact value explicitly written in this new message. subject MUST copy the shortest phrase in the message naming the changed property. Do not add generic nouns or an entity that is absent. For the message \"Mudamos o nome. Agora é Nebula 48.\", subject is exactly \"nome\", never \"nome do objeto\" or \"nome do produto\". confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "NONE",
+        "oldValue": null,
+        "newValue": null
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"type\":\"NONE\",\"subject\":null,\"oldValue\":null,\"newValue\":null,\"confidence\":1,\"reason\":\"The message introduces a new topic without specifying any explicit change to a fact or value.\"}",
+      "usage": {
+        "inputTokens": 386,
+        "outputTokens": 43,
+        "totalTokens": 429
+      },
+      "normalizedOutput": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null,
+        "confidence": 1,
+        "reason": "The message introduces a new topic without specifying any explicit change to a fact or value."
+      },
+      "observed": {
+        "type": "NONE",
+        "subject": null,
+        "oldValue": null,
+        "newValue": null
+      },
+      "passed": true
+    },
+    {
+      "name": "distant_antecedent",
+      "stage": "validate",
+      "input": "{\"proposedChange\":{\"type\":\"SUPERSEDES\",\"subject\":\"nome do projeto Nebula\",\"oldValue\":null,\"newValue\":\"Nebula 48\"},\"newMessage\":{\"id\":\"aaaaaaaa-1111-4111-8111-111111111111\",\"createdAt\":\"2026-09-28T12:00:00.000Z\",\"content\":\"Mudamos o nome. Agora é Nebula 48.\"},\"earlierMessages\":[{\"id\":\"11111111-1111-4111-8111-111111111111\",\"createdAt\":\"2026-09-01T12:00:00.000Z\",\"content\":\"O projeto se chama Nebula 47.\"}]}",
+      "prompt": "You validate a proposed temporal change against earlier conversation messages. Return exactly one JSON object, no markdown.\nSchema: {\"predecessorMessageId\":string|null,\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nSelect only an earlier message that explicitly states the old value of the same subject. A mere mention of a similar name, a different project, a hypothetical, or an ambiguous link is insufficient. The newer message must explicitly change or correct the earlier fact. oldValue MUST be an exact value written in the selected earlier message; newValue MUST be written in the newer message. If several earlier messages state the same old value, choose the MOST RECENT explicit authoritative statement before the change, not the original statement. For example, if A first says \"project is X\", then B later says \"I confirm project is still X\", and C changes to Y, select B as predecessor. Earlier messages are supplied newest first. If multiple different antecedents remain equally plausible, return NONE. If none qualifies, set type NONE and predecessorMessageId null. Never invent an old value. Give a short factual reason, not reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "SUPERSEDES",
+        "oldValue": "Nebula 47",
+        "newValue": "Nebula 48",
+        "predecessorMessageId": "11111111-1111-4111-8111-111111111111"
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"predecessorMessageId\":\"11111111-1111-4111-8111-111111111111\",\"type\":\"SUPERSEDES\",\"subject\":\"nome do projeto Nebula\",\"oldValue\":\"Nebula 47\",\"newValue\":\"Nebula 48\",\"confidence\":0.98,\"reason\":\"The earlier message explicitly states the project was named 'Nebula 47', and the new message confirms the change to 'Nebula 48', directly superseding the prior value with a clear, factual update.\"}",
+      "usage": {
+        "inputTokens": 462,
+        "outputTokens": 134,
+        "totalTokens": 596
+      },
+      "normalizedOutput": {
+        "type": "SUPERSEDES",
+        "subject": "nome do projeto Nebula",
+        "oldValue": "Nebula 47",
+        "newValue": "Nebula 48",
+        "confidence": 0.98,
+        "reason": "The earlier message explicitly states the project was named 'Nebula 47', and the new message confirms the change to 'Nebula 48', directly superseding the prior value with a clear, factual update.",
+        "predecessorMessageId": "11111111-1111-4111-8111-111111111111"
+      },
+      "observed": {
+        "type": "SUPERSEDES",
+        "subject": "nome do projeto Nebula",
+        "oldValue": "Nebula 47",
+        "newValue": "Nebula 48",
+        "predecessorMessageId": "11111111-1111-4111-8111-111111111111"
+      },
+      "passed": true
+    },
+    {
+      "name": "correction_antecedent",
+      "stage": "validate",
+      "input": "{\"proposedChange\":{\"type\":\"CORRECTS\",\"subject\":\"banco de dados\",\"oldValue\":\"PostgreSQL\",\"newValue\":\"SQLite\"},\"newMessage\":{\"id\":\"aaaaaaaa-2222-4222-8222-222222222222\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Eu disse PostgreSQL, mas na verdade estamos usando SQLite.\"},\"earlierMessages\":[{\"id\":\"33333333-3333-4333-8333-333333333333\",\"createdAt\":\"2026-09-01T12:00:00.000Z\",\"content\":\"Estamos usando PostgreSQL no backend.\"}]}",
+      "prompt": "You validate a proposed temporal change against earlier conversation messages. Return exactly one JSON object, no markdown.\nSchema: {\"predecessorMessageId\":string|null,\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nSelect only an earlier message that explicitly states the old value of the same subject. A mere mention of a similar name, a different project, a hypothetical, or an ambiguous link is insufficient. The newer message must explicitly change or correct the earlier fact. oldValue MUST be an exact value written in the selected earlier message; newValue MUST be written in the newer message. If several earlier messages state the same old value, choose the MOST RECENT explicit authoritative statement before the change, not the original statement. For example, if A first says \"project is X\", then B later says \"I confirm project is still X\", and C changes to Y, select B as predecessor. Earlier messages are supplied newest first. If multiple different antecedents remain equally plausible, return NONE. If none qualifies, set type NONE and predecessorMessageId null. Never invent an old value. Give a short factual reason, not reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "CORRECTS",
+        "oldValue": "PostgreSQL",
+        "newValue": "SQLite",
+        "predecessorMessageId": "33333333-3333-4333-8333-333333333333"
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"predecessorMessageId\":\"33333333-3333-4333-8333-333333333333\",\"type\":\"CORRECTS\",\"subject\":\"banco de dados\",\"oldValue\":\"PostgreSQL\",\"newValue\":\"SQLite\",\"confidence\":0.98,\"reason\":\"The earlier message explicitly states 'Estamos usando PostgreSQL no backend.' and the new message directly corrects this by stating 'na verdade estamos usando SQLite.'\"}",
+      "usage": {
+        "inputTokens": 449,
+        "outputTokens": 108,
+        "totalTokens": 557
+      },
+      "normalizedOutput": {
+        "type": "CORRECTS",
+        "subject": "banco de dados",
+        "oldValue": "PostgreSQL",
+        "newValue": "SQLite",
+        "confidence": 0.98,
+        "reason": "The earlier message explicitly states 'Estamos usando PostgreSQL no backend.' and the new message directly corrects this by stating 'na verdade estamos usando SQLite.'",
+        "predecessorMessageId": "33333333-3333-4333-8333-333333333333"
+      },
+      "observed": {
+        "type": "CORRECTS",
+        "subject": "banco de dados",
+        "oldValue": "PostgreSQL",
+        "newValue": "SQLite",
+        "predecessorMessageId": "33333333-3333-4333-8333-333333333333"
+      },
+      "passed": true
+    },
+    {
+      "name": "chain_second_change",
+      "stage": "validate",
+      "input": "{\"proposedChange\":{\"type\":\"SUPERSEDES\",\"subject\":\"nome do projeto Nebula\",\"oldValue\":\"Nebula 48\",\"newValue\":\"Nebula 49\"},\"newMessage\":{\"id\":\"aaaaaaaa-3333-4333-8333-333333333333\",\"createdAt\":\"2026-09-15T12:00:00.000Z\",\"content\":\"Mudamos de Nebula 48 para Nebula 49.\"},\"earlierMessages\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Mudamos o nome do projeto para Nebula 48.\"},{\"id\":\"11111111-1111-4111-8111-111111111111\",\"createdAt\":\"2026-09-01T12:00:00.000Z\",\"content\":\"O projeto se chama Nebula 47.\"}]}",
+      "prompt": "You validate a proposed temporal change against earlier conversation messages. Return exactly one JSON object, no markdown.\nSchema: {\"predecessorMessageId\":string|null,\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nSelect only an earlier message that explicitly states the old value of the same subject. A mere mention of a similar name, a different project, a hypothetical, or an ambiguous link is insufficient. The newer message must explicitly change or correct the earlier fact. oldValue MUST be an exact value written in the selected earlier message; newValue MUST be written in the newer message. If several earlier messages state the same old value, choose the MOST RECENT explicit authoritative statement before the change, not the original statement. For example, if A first says \"project is X\", then B later says \"I confirm project is still X\", and C changes to Y, select B as predecessor. Earlier messages are supplied newest first. If multiple different antecedents remain equally plausible, return NONE. If none qualifies, set type NONE and predecessorMessageId null. Never invent an old value. Give a short factual reason, not reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "SUPERSEDES",
+        "oldValue": "Nebula 48",
+        "newValue": "Nebula 49",
+        "predecessorMessageId": "22222222-2222-4222-8222-222222222222"
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"predecessorMessageId\":\"22222222-2222-4222-8222-222222222222\",\"type\":\"SUPERSEDES\",\"subject\":\"nome do projeto Nebula\",\"oldValue\":\"Nebula 48\",\"newValue\":\"Nebula 49\",\"confidence\":0.98,\"reason\":\"The message from 2026-09-08 explicitly states the project name was changed to 'Nebula 48', and the new message confirms the change to 'Nebula 49', directly superseding the earlier value with a clear, explicit update.\"}",
+      "usage": {
+        "inputTokens": 551,
+        "outputTokens": 147,
+        "totalTokens": 698
+      },
+      "normalizedOutput": {
+        "type": "SUPERSEDES",
+        "subject": "nome do projeto Nebula",
+        "oldValue": "Nebula 48",
+        "newValue": "Nebula 49",
+        "confidence": 0.98,
+        "reason": "The message from 2026-09-08 explicitly states the project name was changed to 'Nebula 48', and the new message confirms the change to 'Nebula 49', directly superseding the earlier value with a clear, explicit update.",
+        "predecessorMessageId": "22222222-2222-4222-8222-222222222222"
+      },
+      "observed": {
+        "type": "SUPERSEDES",
+        "subject": "nome do projeto Nebula",
+        "oldValue": "Nebula 48",
+        "newValue": "Nebula 49",
+        "predecessorMessageId": "22222222-2222-4222-8222-222222222222"
+      },
+      "passed": true
+    },
+    {
+      "name": "repeated_old_value_latest_anchor",
+      "stage": "validate",
+      "input": "{\"proposedChange\":{\"type\":\"SUPERSEDES\",\"subject\":\"nome do projeto Nebula\",\"oldValue\":null,\"newValue\":\"Nebula 48\"},\"newMessage\":{\"id\":\"44444444-4444-4444-8444-444444444444\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Mudamos o nome. Agora é Nebula 48.\"},\"earlierMessages\":[{\"id\":\"bbbbbbbb-1111-4111-8111-111111111111\",\"createdAt\":\"2026-09-05T12:00:00.000Z\",\"content\":\"Confirmo: o projeto ainda se chama Nebula 47.\"},{\"id\":\"11111111-1111-4111-8111-111111111111\",\"createdAt\":\"2026-09-01T12:00:00.000Z\",\"content\":\"O projeto se chama Nebula 47.\"}]}",
+      "prompt": "You validate a proposed temporal change against earlier conversation messages. Return exactly one JSON object, no markdown.\nSchema: {\"predecessorMessageId\":string|null,\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nSelect only an earlier message that explicitly states the old value of the same subject. A mere mention of a similar name, a different project, a hypothetical, or an ambiguous link is insufficient. The newer message must explicitly change or correct the earlier fact. oldValue MUST be an exact value written in the selected earlier message; newValue MUST be written in the newer message. If several earlier messages state the same old value, choose the MOST RECENT explicit authoritative statement before the change, not the original statement. For example, if A first says \"project is X\", then B later says \"I confirm project is still X\", and C changes to Y, select B as predecessor. Earlier messages are supplied newest first. If multiple different antecedents remain equally plausible, return NONE. If none qualifies, set type NONE and predecessorMessageId null. Never invent an old value. Give a short factual reason, not reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "SUPERSEDES",
+        "oldValue": "Nebula 47",
+        "newValue": "Nebula 48",
+        "predecessorMessageId": "bbbbbbbb-1111-4111-8111-111111111111"
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"predecessorMessageId\":\"bbbbbbbb-1111-4111-8111-111111111111\",\"type\":\"SUPERSEDES\",\"subject\":\"nome do projeto Nebula\",\"oldValue\":\"Nebula 47\",\"newValue\":\"Nebula 48\",\"confidence\":0.98,\"reason\":\"The most recent earlier message explicitly states the project was named 'Nebula 47', and the new message confirms the change to 'Nebula 48'.\"}",
+      "usage": {
+        "inputTokens": 547,
+        "outputTokens": 118,
+        "totalTokens": 665
+      },
+      "normalizedOutput": {
+        "type": "SUPERSEDES",
+        "subject": "nome do projeto Nebula",
+        "oldValue": "Nebula 47",
+        "newValue": "Nebula 48",
+        "confidence": 0.98,
+        "reason": "The most recent earlier message explicitly states the project was named 'Nebula 47', and the new message confirms the change to 'Nebula 48'.",
+        "predecessorMessageId": "bbbbbbbb-1111-4111-8111-111111111111"
+      },
+      "observed": {
+        "type": "SUPERSEDES",
+        "subject": "nome do projeto Nebula",
+        "oldValue": "Nebula 47",
+        "newValue": "Nebula 48",
+        "predecessorMessageId": "bbbbbbbb-1111-4111-8111-111111111111"
+      },
+      "passed": true
+    }
+  ],
+  "combo": "local-general",
+  "status": "passed"
+}

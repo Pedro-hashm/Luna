@@ -39,12 +39,28 @@ function toConversationRetrievalModelResult(
 ): Record<string, unknown> {
   return {
     query: result.query,
+    temporalMode: result.temporalMode,
     results: result.results.map((item) => ({
       status: item.status,
       tokenCount: item.tokenCount,
       timeRange: item.timeRange,
       content: item.content,
       tailContent: item.tailContent,
+      temporalChanges: item.temporalChanges?.map((change) => ({
+        status: 'superseded',
+        subject: change.subject,
+        type: change.type,
+        oldValue: change.oldValue,
+        newValue: change.newValue,
+        chainComplete: change.chainComplete,
+        successors: change.successors.map((successor) => ({
+          role: successor.role,
+          content: successor.content,
+          createdAt: successor.createdAt,
+          type: successor.type,
+          newValue: successor.newValue,
+        })),
+      })),
       messages: item.messages?.map((message) => ({
         role: message.role,
         content: message.content,

@@ -233,6 +233,19 @@ export class ConversationChunkRetrievalProvider implements Retriever {
       `);
     }
 
+    // A conversation may have messages on both sides of the requested cutoff.
+    // Exclude chunks that begin after dateTo before ranking them, then let the
+    // message expansion enforce the exact cutoff within a spanning chunk.
+    if (filters.dateTo) {
+      clauses.push(Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "messages" chunk_start_message
+          WHERE chunk_start_message."id" = cc."start_message_id"
+            AND chunk_start_message."created_at" <= ${filters.dateTo}
+        )
+      `);
+    }
+
     // A conversation retrieval request is validated to include a date or scope
     // constraint before it reaches this source. Keep an explicit predicate for
     // the unfiltered generic case so Prisma.join never receives an empty list.

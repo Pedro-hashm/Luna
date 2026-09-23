@@ -23,6 +23,9 @@ export type ContextSnapshot = {
   tools?: ContextPart;
   system?: ContextPart;
   orchestrator?: ContextPart;
+  promptTarget?: 'orchestrator' | 'luna';
+  promptIteration?: number;
+  promptMessages?: Array<Pick<ObservabilityMessage, 'role' | 'content'>>;
   totalTokens?: number;
   [key: string]: unknown;
 };

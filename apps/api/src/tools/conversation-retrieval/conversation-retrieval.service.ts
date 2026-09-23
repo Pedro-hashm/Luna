@@ -18,6 +18,8 @@ import type {
   ConversationRetrievalResult,
   ConversationRetrievalScope,
   ConversationRetrievalTimeRange,
+  ConversationTemporalChange,
+  ConversationTemporalMode,
 } from './types/conversation-retrieval.types';
 
 type NormalizedInput = {
@@ -32,6 +34,32 @@ type NormalizedInput = {
   maxContextTokens: number;
   includeMessages: boolean;
   timeZone: string;
+  temporalMode: ConversationTemporalMode;
+};
+
+type InternalRetrievalOptions = {
+  topK?: number;
+  configOverrides?: Partial<RetrievalConfig>;
+};
+
+type TemporalRelationWithMessage = {
+  predecessorMessageId: string;
+  successorMessageId: string;
+  type: 'SUPERSEDES' | 'CORRECTS';
+  subject: string;
+  oldValue: string;
+  newValue: string;
+  predecessorMessage: {
+    role: string;
+    content: string;
+  };
+  successorMessage: {
+    id: string;
+    conversationId: string;
+    role: string;
+    content: string;
+    createdAt: Date;
+  };
 };
 
 type ChunkCandidate = {
@@ -68,6 +96,7 @@ export class ConversationRetrievalService {
   async retrieve(
     input: ConversationRetrievalInput,
     context: ToolExecutionContext,
+    internalOptions: InternalRetrievalOptions = {},
   ): Promise<ConversationRetrievalResult> {
     const applicationSettings =
       await this.settingsService.getApplicationSettings();
@@ -75,6 +104,7 @@ export class ConversationRetrievalService {
       input,
       context,
       applicationSettings,
+      internalOptions.topK,
     );
 
     if (!normalized.query && !normalized.dateFrom && !normalized.dateTo) {
@@ -84,7 +114,10 @@ export class ConversationRetrievalService {
       );
     }
 
-    const retrievalConfig = this.retrievalConfiguration(applicationSettings);
+    const retrievalConfig = {
+      ...this.retrievalConfiguration(applicationSettings),
+      ...internalOptions.configOverrides,
+    };
     const retrieval = await this.retrievalEngine.retrieve(
       {
         query: normalized.query,
@@ -98,10 +131,27 @@ export class ConversationRetrievalService {
       this.toChunkCandidate(candidate),
     );
 
-    const expansion = await this.expandCandidates(candidates, normalized);
-    const results = expansion.results;
+    const temporalEnabled = applicationSettings.temporalConsolidationEnabled === true;
+    const temporalReserve = temporalEnabled && normalized.temporalMode !== 'historical'
+      ? Math.min(1_000, Math.floor(normalized.maxContextTokens / 4))
+      : 0;
+    const expansion = await this.expandCandidates(candidates, {
+      ...normalized,
+      maxContextTokens: normalized.maxContextTokens - temporalReserve,
+    });
+    const temporalStartedAt = Date.now();
+    const temporal = temporalEnabled && normalized.temporalMode !== 'historical'
+      ? await this.enrichTemporalResults(
+          expansion.results,
+          expansion.references,
+          normalized,
+          temporalReserve * 4,
+        )
+      : { results: expansion.results, references: expansion.references, changeCount: 0 };
+    const results = temporal.results;
     const conversationDiagnostics = {
       scope: normalized.scope,
+      temporalMode: temporalEnabled ? normalized.temporalMode : null,
       dateFrom: normalized.dateFrom?.toISOString() ?? null,
       dateTo: normalized.dateTo?.toISOString() ?? null,
       maxContextTokens: normalized.maxContextTokens,
@@ -109,14 +159,19 @@ export class ConversationRetrievalService {
       stages: {
         messageExpansion: expansion.messageExpansion,
         resultAssembly: expansion.resultAssembly,
+        ...(temporalEnabled ? { temporalValidation: {
+          count: temporal.changeCount,
+          latencyMs: Date.now() - temporalStartedAt,
+        } } : {}),
       },
-      references: expansion.references,
+      references: temporal.references,
       counts: {
         retrievalCandidates: candidates.length,
         returnedResults: results.length,
         excludedCandidates: expansion.candidates.filter(
           (candidate) => candidate.outcome === 'excluded',
         ).length,
+        temporalChanges: temporal.changeCount,
       },
       candidates: expansion.candidates,
     };
@@ -136,6 +191,7 @@ export class ConversationRetrievalService {
 
     const result: ConversationRetrievalResult = {
       query: normalized.query ?? null,
+      ...(temporalEnabled ? { temporalMode: normalized.temporalMode } : {}),
       results,
     };
     Object.defineProperty(result, '__retrievalDiagnostics', {
@@ -228,8 +284,9 @@ export class ConversationRetrievalService {
       retrievalMaxContextTokens: number;
       retrievalIncludeMessages: boolean;
     },
+    internalTopK?: number,
   ): Promise<NormalizedInput> {
-    const query = this.normalizeOptionalText(input.query);
+    let query = this.normalizeOptionalText(input.query);
     const runtimeConversationId = this.normalizeOptionalText(
       context.conversationId,
     );
@@ -238,6 +295,7 @@ export class ConversationRetrievalService {
     );
     let currentMessageCreatedAt: Date | undefined;
     const scope = input.scope ?? 'auto';
+    const temporalMode = input.temporalMode ?? 'current';
 
     if (runtimeConversationId) {
       this.assertRuntimeUuid(runtimeConversationId, 'conversationId');
@@ -293,6 +351,10 @@ export class ConversationRetrievalService {
       settings.appTimezone,
     );
 
+    if ((dateFrom || dateTo) && this.isGenericPeriodOverviewQuery(query)) {
+      query = undefined;
+    }
+
     if (dateFrom && dateTo && dateFrom > dateTo) {
       throw new ToolArgumentException(
         'dateFrom',
@@ -300,7 +362,7 @@ export class ConversationRetrievalService {
       );
     }
 
-    const topK = settings.retrievalDefaultTopK;
+    const topK = internalTopK ?? settings.retrievalDefaultTopK;
     const maxContextTokens =
       input.maxContextTokens ?? settings.retrievalDefaultMaxContextTokens;
 
@@ -348,7 +410,231 @@ export class ConversationRetrievalService {
       includeMessages:
         input.includeMessages ?? settings.retrievalIncludeMessages,
       timeZone: settings.appTimezone,
+      temporalMode,
     };
+  }
+
+  private isGenericPeriodOverviewQuery(query?: string): boolean {
+    if (!query) return false;
+    const normalized = query
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+    if (!normalized) return false;
+
+    const genericTerms = new Set([
+      'a', 'aconteceu', 'acontecimentos', 'all', 'as', 'assunto', 'assuntos',
+      'atividade', 'atividades', 'about', 'conversation', 'conversations',
+      'conversa', 'conversas', 'conversado', 'conversamos', 'de', 'discussao',
+      'discussoes', 'discussion', 'discussions', 'discutida', 'discutido',
+      'discutir', 'do', 'dos', 'essa', 'esse', 'esta', 'everything', 'falado',
+      'falamos', 'falaram', 'foi', 'geral', 'gerais', 'happened', 'isso', 'mes',
+      'month', 'o', 'overview', 'que', 'resumo', 'semana', 'summary', 'talk',
+      'talked', 'temas', 'tema', 'the', 'this', 'today', 'tudo', 'what', 'was',
+      'we', 'week', 'yesterday',
+    ]);
+    const terms = normalized.split(/\s+/);
+    return terms.every((term) => genericTerms.has(term));
+  }
+
+  private async enrichTemporalResults(
+    results: ConversationRetrievalItem[],
+    references: ConversationEvidenceReference[],
+    input: NormalizedInput,
+    contentBudget: number,
+  ): Promise<{
+    results: ConversationRetrievalItem[];
+    references: ConversationEvidenceReference[];
+    changeCount: number;
+  }> {
+    const referenceByChunk = new Map(references.map((reference) => [reference.chunkId, reference]));
+    const initialIds = [...new Set(references.flatMap((reference) => reference.messageIds))];
+    if (!initialIds.length) return { results, references, changeCount: 0 };
+
+    // A message may be in overlapping chunks, but only one outgoing relation
+    // may exist. Resolve up to eight known transitions in bounded batches.
+    const relations = new Map<string, TemporalRelationWithMessage>();
+    const visited = new Set<string>();
+    let frontier = initialIds.slice(0, 1_000);
+    for (let depth = 0; depth < 8 && frontier.length; depth += 1) {
+      const batch = frontier.filter((id) => !visited.has(id)).slice(0, 1_000);
+      if (!batch.length) break;
+      batch.forEach((id) => visited.add(id));
+      const found: TemporalRelationWithMessage[] = await this.prisma.temporalRelation.findMany({
+        where: { predecessorMessageId: { in: batch } },
+        include: { predecessorMessage: true, successorMessage: true },
+      });
+      frontier = [];
+      for (const relation of found) {
+        if (!this.temporalSuccessorVisible(relation.successorMessage, input)) continue;
+        relations.set(relation.predecessorMessageId, relation);
+        frontier.push(relation.successorMessageId);
+      }
+    }
+
+    const changesByItem = new Map<string, ConversationTemporalChange[]>();
+    const pathByPredecessor = new Map<string, TemporalRelationWithMessage[]>();
+    const seenPredecessors = new Set<string>();
+    for (const item of results) {
+      const reference = referenceByChunk.get(item.chunkId);
+      if (!reference) continue;
+      const changes: ConversationTemporalChange[] = [];
+      for (const id of reference.messageIds) {
+        if (seenPredecessors.has(id)) continue;
+        const first = relations.get(id);
+        if (!first) continue;
+        // The reference can cover more messages than the rendered text when
+        // the context budget truncates a chunk. Do not annotate an assertion
+        // the model was never shown.
+        const rendered = `${item.content}\n${item.tailContent ?? ''}`;
+        if (!rendered.includes(this.formatMessage(first.predecessorMessage))) continue;
+        const path: TemporalRelationWithMessage[] = [];
+        const pathIds = new Set([id]);
+        let current: TemporalRelationWithMessage | undefined = first;
+        while (current && path.length < 8 && !pathIds.has(current.successorMessageId)) {
+          path.push(current);
+          pathIds.add(current.successorMessageId);
+          const next = relations.get(current.successorMessageId);
+          current = next && this.sameTemporalFact(current, next) ? next : undefined;
+        }
+        if (!path.length) continue;
+        seenPredecessors.add(id);
+        const visiblePath = input.temporalMode === 'current'
+          ? [path[path.length - 1]]
+          : path;
+        pathByPredecessor.set(id, path);
+        const last = path[path.length - 1];
+        changes.push({
+          predecessorMessageId: id,
+          subject: first.subject,
+          type: first.type,
+          oldValue: first.oldValue,
+          newValue: last.newValue,
+          chainComplete: path.length < 8,
+          successors: visiblePath.map((relation) => ({
+            messageId: relation.successorMessageId,
+            role: relation.successorMessage.role,
+            content: relation.successorMessage.content,
+            createdAt: formatApplicationDateTime(relation.successorMessage.createdAt, input.timeZone),
+            type: relation.type,
+            newValue: relation.newValue,
+          })),
+        });
+      }
+      if (changes.length) changesByItem.set(item.chunkId, changes);
+    }
+
+    let remainingBudget = contentBudget;
+    let changeCount = 0;
+    const successorMessages = new Map<string, TemporalRelationWithMessage['successorMessage']>();
+    const enriched = results.map((item) => {
+      const changes = changesByItem.get(item.chunkId);
+      if (!changes) return item;
+      const accepted: ConversationTemporalChange[] = [];
+      for (const change of changes) {
+        let maxSuccessorCharacters = input.temporalMode === 'both' ? 240 : 400;
+        let bounded: ConversationTemporalChange;
+        let estimatedSize: number;
+        do {
+          bounded = {
+          ...change,
+          successors: change.successors.map((successor) => ({
+            ...successor,
+            content: successor.content.slice(0, maxSuccessorCharacters),
+          })),
+          };
+          estimatedSize = this.temporalPayloadSize(bounded);
+          if (estimatedSize <= remainingBudget || maxSuccessorCharacters <= 80) break;
+          maxSuccessorCharacters = Math.max(80, Math.floor(maxSuccessorCharacters * 0.6));
+        } while (true);
+        if (estimatedSize > remainingBudget) continue;
+        accepted.push(bounded);
+        changeCount += 1;
+        remainingBudget -= estimatedSize;
+        // Evidence retains every source used to justify a displayed path,
+        // including intermediate states hidden by current mode.
+        for (const relation of pathByPredecessor.get(change.predecessorMessageId) ?? []) {
+          successorMessages.set(relation.successorMessageId, relation.successorMessage);
+        }
+      }
+      return accepted.length ? { ...item, temporalChanges: accepted } : item;
+    });
+    const referenced = new Set(references.flatMap((reference) => reference.messageIds));
+    const successorReferences: ConversationEvidenceReference[] = [];
+    for (const successor of successorMessages.values()) {
+      if (referenced.has(successor.id)) continue;
+      referenced.add(successor.id);
+      const when = successor.createdAt.toISOString();
+      successorReferences.push({
+        conversationId: successor.conversationId,
+        startMessageId: successor.id,
+        endMessageId: successor.id,
+        messageIds: [successor.id],
+        startAt: when,
+        endAt: when,
+        dates: [formatApplicationDateTime(successor.createdAt, input.timeZone).slice(0, 10)],
+      });
+    }
+    return {
+      results: enriched,
+      references: [...references, ...successorReferences],
+      changeCount,
+    };
+  }
+
+  private temporalPayloadSize(change: ConversationTemporalChange): number {
+    // Match the model-facing projection, including keys and dates. The retrieval
+    // budget is approximate characters/4; counting serialized characters is
+    // deliberately conservative for this small derived payload.
+    return JSON.stringify({
+      status: 'superseded',
+      subject: change.subject,
+      type: change.type,
+      oldValue: change.oldValue,
+      newValue: change.newValue,
+      chainComplete: change.chainComplete,
+      successors: change.successors.map((successor) => ({
+        role: successor.role,
+        content: successor.content,
+        createdAt: successor.createdAt,
+        type: successor.type,
+        newValue: successor.newValue,
+      })),
+    }).length + 32;
+  }
+
+  private temporalSuccessorVisible(
+    successor: TemporalRelationWithMessage['successorMessage'],
+    input: NormalizedInput,
+  ): boolean {
+    if (input.dateTo && successor.createdAt > input.dateTo) return false;
+    if (input.scope === 'current_conversation' && successor.conversationId !== input.runtimeConversationId) return false;
+    if (input.scope === 'historical' && successor.conversationId === input.runtimeConversationId) return false;
+    if (successor.conversationId === input.runtimeConversationId && input.currentMessageCreatedAt) {
+      if (successor.createdAt > input.currentMessageCreatedAt) return false;
+      if (successor.createdAt.getTime() === input.currentMessageCreatedAt.getTime() &&
+          successor.id.localeCompare(input.currentMessageId ?? '') > 0) return false;
+    }
+    return true;
+  }
+
+  private sameTemporalFact(
+    previous: TemporalRelationWithMessage,
+    next: TemporalRelationWithMessage,
+  ): boolean {
+    const normalize = (text: string) => text.toLowerCase().normalize('NFKD')
+      .replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (normalize(previous.newValue) !== normalize(next.oldValue)) return false;
+    const stop = new Set([
+      'a', 'o', 'de', 'do', 'da', 'the', 'of', 'um', 'uma',
+      'projeto', 'project', 'produto', 'product', 'sistema', 'system',
+      'aplicativo', 'app', 'atual', 'current',
+    ]);
+    const previousTerms = new Set(normalize(previous.subject).split(' ').filter((term) => term && !stop.has(term)));
+    const nextTerms = normalize(next.subject).split(' ').filter((term) => term && !stop.has(term));
+    return nextTerms.some((term) => previousTerms.has(term));
   }
 
   private async expandCandidates(
@@ -814,7 +1100,7 @@ export class ConversationRetrievalService {
     }
   }
 
-  private formatMessage(message: ConversationRetrievalMessage): string {
+  private formatMessage(message: Pick<ConversationRetrievalMessage, 'role' | 'content'>): string {
     return `${message.role}: ${message.content}`;
   }
 

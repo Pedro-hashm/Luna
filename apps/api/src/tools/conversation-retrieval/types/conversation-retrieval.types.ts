@@ -7,11 +7,21 @@ export const CONVERSATION_RETRIEVAL_SCOPES = [
 export type ConversationRetrievalScope =
   (typeof CONVERSATION_RETRIEVAL_SCOPES)[number];
 
+export const CONVERSATION_TEMPORAL_MODES = [
+  'current',
+  'historical',
+  'both',
+] as const;
+
+export type ConversationTemporalMode =
+  (typeof CONVERSATION_TEMPORAL_MODES)[number];
+
 export type ConversationRetrievalInput = {
   query?: string;
   dateFrom?: string;
   dateTo?: string;
   scope?: ConversationRetrievalScope;
+  temporalMode?: ConversationTemporalMode;
   maxContextTokens?: number;
   includeMessages?: boolean;
 };
@@ -46,10 +56,32 @@ export type ConversationRetrievalItem = {
   tokenCount: number;
   timeRange: ConversationRetrievalTimeRange;
   messages?: ConversationRetrievalMessage[];
+  /** Message-level change evidence. A chunk containing one old fact is not wholly obsolete. */
+  temporalChanges?: ConversationTemporalChange[];
+};
+
+export type ConversationTemporalChange = {
+  predecessorMessageId: string;
+  subject: string;
+  type: 'SUPERSEDES' | 'CORRECTS';
+  oldValue: string;
+  newValue: string;
+  /** False when the bounded walk ended before it could prove a terminal successor. */
+  chainComplete: boolean;
+  /** Ordered successors known to the derived index, ending at the latest visible state. */
+  successors: Array<{
+    messageId: string;
+    role: string;
+    content: string;
+    createdAt: string;
+    type: 'SUPERSEDES' | 'CORRECTS';
+    newValue: string;
+  }>;
 };
 
 export type ConversationRetrievalResult = {
   query: string | null;
+  temporalMode?: ConversationTemporalMode;
   results: ConversationRetrievalItem[];
   /** Internal trace payload. ToolsService removes this before model-facing output. */
   __retrievalDiagnostics?: import('../../../retrieval/retrieval.types').RetrievalDiagnostics;
@@ -60,7 +92,7 @@ export type ConversationRetrievalResult = {
 /** Internal coordinates of the source messages represented by a returned result. */
 export type ConversationEvidenceReference = {
   conversationId: string;
-  chunkId: string;
+  chunkId?: string;
   startMessageId: string;
   endMessageId: string;
   messageIds: string[];
@@ -71,6 +103,7 @@ export type ConversationEvidenceReference = {
 
 export type ConversationRetrievalDiagnostics = {
   scope: ConversationRetrievalScope;
+  temporalMode: ConversationTemporalMode | null;
   dateFrom: string | null;
   dateTo: string | null;
   maxContextTokens: number;
@@ -78,12 +111,14 @@ export type ConversationRetrievalDiagnostics = {
   stages: {
     messageExpansion: { count: number; latencyMs: number };
     resultAssembly: { count: number; latencyMs: number };
+    temporalValidation?: { count: number; latencyMs: number };
   };
   references: ConversationEvidenceReference[];
   counts: {
     retrievalCandidates: number;
     returnedResults: number;
     excludedCandidates: number;
+    temporalChanges?: number;
   };
   candidates: Array<{
     chunkId: string;

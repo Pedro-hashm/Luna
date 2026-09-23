@@ -5,4 +5,5 @@ export interface LlmRequest {
     messages: ChatMessage[];
     temperature?: number;
     maxTokens?: number;
+    signal?: AbortSignal;
 }

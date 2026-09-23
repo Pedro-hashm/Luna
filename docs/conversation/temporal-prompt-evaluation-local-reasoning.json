@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-09-23T06:52:38.165Z",
+  "source": "synthetic controlled cases; no conversation data",
+  "promptVersion": 1,
+  "cases": [
+    {
+      "name": "explicit_change",
+      "stage": "extract",
+      "input": "{\"messageId\":\"44444444-4444-4444-8444-444444444444\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Mudamos o nome. Agora é Nebula 48.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue may be null when the change is explicit but its previous value is unstated. subject should be a short search phrase in the message's language, identifying the changing property and entity. confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-reasoning",
+      "expected": {
+        "type": "SUPERSEDES"
+      },
+      "model": "qwen3.5:4b",
+      "rawOutput": "",
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 400,
+        "totalTokens": 684
+      },
+      "passed": false,
+      "error": "invalid structured output: JSON parse failed"
+    }
+  ],
+  "combo": "local-reasoning",
+  "status": "failed"
+}

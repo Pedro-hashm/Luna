@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -200,6 +201,10 @@ def ensure_qwen_server() -> None:
                 str(QWEN_PORT),
                 "--ctx-size",
                 "8192",
+                "--batch-size",
+                "2048",
+                "--ubatch-size",
+                "2048",
                 "--no-webui",
                 "--embedding",
                 "--rerank",
@@ -276,6 +281,20 @@ def rerank(request: RerankRequest) -> dict[str, Any]:
                     for item in payload.get("results", [])
                 ],
             }
+        except urllib.error.HTTPError as error:
+            detail = f"Qwen3 reranking failed: llama.cpp HTTP {error.code}"
+            failure_body = error.read(4096).decode("utf-8", errors="replace")
+            batch_error = re.search(
+                r"input \((\d+) tokens\) is too large to process.*?current batch size: (\d+)",
+                failure_body,
+                flags=re.DOTALL,
+            )
+            if batch_error:
+                detail += (
+                    f" (input tokens: {batch_error.group(1)}, "
+                    f"physical batch size: {batch_error.group(2)})"
+                )
+            raise HTTPException(status_code=503, detail=detail) from error
         except (urllib.error.URLError, KeyError, ValueError) as error:
             raise HTTPException(status_code=503, detail=f"Qwen3 reranking failed: {error}")
 

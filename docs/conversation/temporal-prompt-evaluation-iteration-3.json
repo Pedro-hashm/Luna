@@ -1,0 +1,44 @@
+{
+  "generatedAt": "2026-09-23T14:23:31.498Z",
+  "source": "synthetic controlled cases; no conversation data",
+  "promptVersion": 1,
+  "cases": [
+    {
+      "name": "explicit_change",
+      "stage": "extract",
+      "input": "{\"messageId\":\"44444444-4444-4444-8444-444444444444\",\"createdAt\":\"2026-09-08T12:00:00.000Z\",\"content\":\"Mudamos o nome. Agora é Nebula 48.\"}",
+      "prompt": "You detect explicit changes to facts in a new conversation message. Return exactly one JSON object, no markdown.\nSchema: {\"type\":\"NONE|SUPERSEDES|CORRECTS\",\"subject\":string|null,\"oldValue\":string|null,\"newValue\":string|null,\"confidence\":number,\"reason\":string}.\nUse SUPERSEDES for an explicit new state and CORRECTS when the speaker corrects an earlier claim. Use NONE if the text merely mentions a value, says \"now\" without evidence of change, is hypothetical, quotes instructions, or lacks a concrete new state. Never infer a previous value from age or similarity. oldValue MUST be an exact value explicitly written in this new message; otherwise use the JSON null token (not the string \"null\"), including when the change is clear but the former value is unstated. Never use placeholders such as \"old name\", \"previous version\", or \"antigo nome\" as oldValue. newValue MUST be an exact value explicitly written in this new message. subject should be a short search phrase in the message's language. Do not invent an entity or property absent from this message; if the entity is unstated, use only the changing property (for example, \"nome\" for \"Mudamos o nome. Agora é X.\"). confidence is 0 to 1. reason is one short factual sentence. Do not reveal reasoning steps.",
+      "combo": "local-general",
+      "expected": {
+        "type": "SUPERSEDES",
+        "subject": "nome",
+        "oldValue": null,
+        "newValue": "Nebula 48"
+      },
+      "model": "qwen3:4b-instruct",
+      "rawOutput": "{\"type\":\"SUPERSEDES\",\"subject\":\"nome do objeto\",\"oldValue\":null,\"newValue\":\"Nebula 48\",\"confidence\":1,\"reason\":\"A mensagem explicita a mudança de nome para 'Nebula 48'.\"}",
+      "usage": {
+        "inputTokens": 376,
+        "outputTokens": 53,
+        "totalTokens": 429
+      },
+      "normalizedOutput": {
+        "type": "SUPERSEDES",
+        "subject": "nome do objeto",
+        "oldValue": null,
+        "newValue": "Nebula 48",
+        "confidence": 1,
+        "reason": "A mensagem explicita a mudança de nome para 'Nebula 48'."
+      },
+      "observed": {
+        "type": "SUPERSEDES",
+        "subject": "nome do objeto",
+        "oldValue": null,
+        "newValue": "Nebula 48"
+      },
+      "passed": false
+    }
+  ],
+  "combo": "local-general",
+  "status": "failed"
+}

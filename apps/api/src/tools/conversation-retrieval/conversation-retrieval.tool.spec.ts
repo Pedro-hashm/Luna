@@ -55,6 +55,7 @@ describe('ConversationRetrievalTool', () => {
         dateFrom: undefined,
         dateTo: undefined,
         scope: 'historical',
+        temporalMode: undefined,
         maxContextTokens: undefined,
         includeMessages: undefined,
       },
@@ -103,6 +104,7 @@ describe('ConversationRetrievalTool', () => {
       {
         query: 'Nebula 47 data dia conversa',
         scope: 'auto',
+        temporalMode: undefined,
         dateFrom: undefined,
         dateTo: undefined,
         includeMessages: false,
@@ -121,5 +123,22 @@ describe('ConversationRetrievalTool', () => {
     await expect(
       tool.execute({ query: 'nebula', dateFrom: 20260923 }, context),
     ).rejects.toBeInstanceOf(ToolArgumentException);
+  });
+
+  it('accepts temporal intent independently of conversation scope', async () => {
+    const retrievalService = {
+      retrieve: jest.fn().mockResolvedValue({ query: 'nebula', results: [] }),
+    };
+    const tool = new ConversationRetrievalTool(
+      { register: jest.fn() } as never,
+      retrievalService as never,
+    );
+    await tool.execute({ query: 'nebula', scope: 'auto', temporalMode: 'both' }, context);
+    expect(retrievalService.retrieve).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'auto', temporalMode: 'both' }),
+      context,
+    );
+    await expect(tool.execute({ query: 'nebula', temporalMode: 'future' }, context))
+      .rejects.toBeInstanceOf(ToolArgumentException);
   });
 });

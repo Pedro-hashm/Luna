@@ -262,6 +262,41 @@ export class SettingsService {
             data.conversationEvidenceEnabled = input.conversationEvidenceEnabled;
         }
 
+        if (input.temporalConsolidationEnabled !== undefined) {
+            if (typeof input.temporalConsolidationEnabled !== "boolean") {
+                throw new BadRequestException("temporalConsolidationEnabled must be a boolean");
+            }
+            data.temporalConsolidationEnabled = input.temporalConsolidationEnabled;
+        }
+
+        if (input.temporalConsolidationDefaultCombo !== undefined) {
+            data.temporalConsolidationDefaultCombo = this.optionalText(
+                input.temporalConsolidationDefaultCombo,
+                "temporalConsolidationDefaultCombo",
+            );
+        }
+
+        if (input.temporalConsolidationFallbackCombo !== undefined) {
+            data.temporalConsolidationFallbackCombo = this.optionalText(
+                input.temporalConsolidationFallbackCombo,
+                "temporalConsolidationFallbackCombo",
+            );
+        }
+
+        if (input.temporalConsolidationStartTime !== undefined) {
+            data.temporalConsolidationStartTime = this.requiredTime(
+                input.temporalConsolidationStartTime,
+                "temporalConsolidationStartTime",
+            );
+        }
+
+        if (input.temporalConsolidationEndTime !== undefined) {
+            data.temporalConsolidationEndTime = this.requiredTime(
+                input.temporalConsolidationEndTime,
+                "temporalConsolidationEndTime",
+            );
+        }
+
         return data;
     }
 
@@ -365,6 +400,18 @@ export class SettingsService {
         return value.trim();
     }
 
+    private optionalText(value: string | null, field: string): string | null {
+        if (value === null) return null;
+        return this.requiredText(value, field);
+    }
+
+    private requiredTime(value: string, field: string): string {
+        if (typeof value !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(value)) {
+            throw new BadRequestException(`${field} must be a time in HH:mm format`);
+        }
+        return value;
+    }
+
     private requiredInteger(
         value: number,
         field: string,
@@ -453,6 +500,11 @@ export class SettingsService {
             retrievalDeduplicationEnabled: settings.retrievalDeduplicationEnabled,
             retrievalDeduplicationThreshold: settings.retrievalDeduplicationThreshold,
             conversationEvidenceEnabled: settings.conversationEvidenceEnabled,
+            temporalConsolidationEnabled: settings.temporalConsolidationEnabled,
+            temporalConsolidationDefaultCombo: settings.temporalConsolidationDefaultCombo,
+            temporalConsolidationFallbackCombo: settings.temporalConsolidationFallbackCombo,
+            temporalConsolidationStartTime: settings.temporalConsolidationStartTime,
+            temporalConsolidationEndTime: settings.temporalConsolidationEndTime,
         };
     }
 }

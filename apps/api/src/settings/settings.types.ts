@@ -27,6 +27,11 @@ export type ApplicationSettingsResponse = {
   retrievalDeduplicationEnabled: boolean;
   retrievalDeduplicationThreshold: number;
   conversationEvidenceEnabled: boolean;
+  temporalConsolidationEnabled: boolean;
+  temporalConsolidationDefaultCombo: string | null;
+  temporalConsolidationFallbackCombo: string | null;
+  temporalConsolidationStartTime: string;
+  temporalConsolidationEndTime: string;
 };
 
 export type ConversationChunkSettingsResponse = {

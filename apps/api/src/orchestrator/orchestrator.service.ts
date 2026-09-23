@@ -77,6 +77,7 @@ export class OrchestratorService {
             combo: settings.orchestratorCombo,
           },
           promptMessages,
+          iteration,
           startedAt,
           latencyMs: Date.now() - startedAtMs,
           error,
@@ -92,6 +93,7 @@ export class OrchestratorService {
         context,
         settings: { combo: settings.orchestratorCombo },
         promptMessages,
+        iteration,
         startedAt,
         latencyMs,
         response,
@@ -619,6 +621,7 @@ export class OrchestratorService {
     context: OrchestratorContext;
     settings: { combo: string };
     promptMessages: ChatMessage[];
+    iteration: number;
     startedAt: Date;
     latencyMs: number;
     response?: LlmResponse;
@@ -652,6 +655,8 @@ export class OrchestratorService {
       contextSnapshot: this.contextSnapshot(
         input.context,
         input.toolExecutions,
+        input.promptMessages,
+        input.iteration,
       ),
       errorMessage: input.error
         ? input.error instanceof Error
@@ -666,12 +671,17 @@ export class OrchestratorService {
   private contextSnapshot(
     context: OrchestratorContext,
     toolExecutions: OrchestratorToolExecution[],
+    promptMessages: ChatMessage[],
+    iteration: number,
   ) {
     const immediateTokens = this.estimateMessagesTokens(context.recentMessages);
     const toolText = JSON.stringify(toolExecutions);
     const toolTokens = this.estimateTokens(toolText);
 
     return {
+      promptTarget: 'orchestrator' as const,
+      promptIteration: iteration,
+      promptMessages,
       immediate: {
         messages: context.recentMessages,
         tokens: immediateTokens,

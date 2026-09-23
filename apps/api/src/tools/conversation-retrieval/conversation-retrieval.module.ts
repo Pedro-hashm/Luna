@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConversationEmbeddingModule } from '../../conversation/conversation-embedding.module';
 import { FILTER_RETRIEVER, LEXICAL_RETRIEVER, RERANKER, VECTOR_RETRIEVER } from '../../retrieval/retrieval.types';
+import type { Retriever } from '../../retrieval/retrieval.types';
 import { LocalCrossEncoderRanker } from '../../retrieval/local-cross-encoder-ranker.service';
 import { LocalRerankerClient } from '../../retrieval/local-reranker.client';
 import { RetrievalController } from '../../retrieval/retrieval.controller';
@@ -16,9 +17,27 @@ import { ConversationRetrievalService } from './conversation-retrieval.service';
   controllers: [RetrievalController],
   providers: [
     ConversationChunkRetrievalProvider,
-    { provide: VECTOR_RETRIEVER, useExisting: ConversationChunkRetrievalProvider },
-    { provide: LEXICAL_RETRIEVER, useExisting: ConversationChunkRetrievalProvider },
-    { provide: FILTER_RETRIEVER, useExisting: ConversationChunkRetrievalProvider },
+    {
+      provide: VECTOR_RETRIEVER,
+      useFactory: (provider: ConversationChunkRetrievalProvider): Retriever => ({
+        retrieve: (query, config) => provider.retrieveVector(query, config.topK),
+      }),
+      inject: [ConversationChunkRetrievalProvider],
+    },
+    {
+      provide: LEXICAL_RETRIEVER,
+      useFactory: (provider: ConversationChunkRetrievalProvider): Retriever => ({
+        retrieve: (query, config) => provider.retrieveLexical(query, config.topK),
+      }),
+      inject: [ConversationChunkRetrievalProvider],
+    },
+    {
+      provide: FILTER_RETRIEVER,
+      useFactory: (provider: ConversationChunkRetrievalProvider): Retriever => ({
+        retrieve: (query, config) => provider.retrieveFiltered(query, config.topK),
+      }),
+      inject: [ConversationChunkRetrievalProvider],
+    },
     LocalRerankerClient,
     LocalCrossEncoderRanker,
     { provide: RERANKER, useExisting: LocalCrossEncoderRanker },

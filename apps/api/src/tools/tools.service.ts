@@ -57,10 +57,17 @@ export class ToolsService {
       }
       const resultText = 'evidence_id' in result
         ? result.results.map((item) => item.content).join('\n')
-        : result.results.map((item) => `${item.content}\n${item.tailContent ?? ''}`).join('\n');
+        : result.results.map((item) => `${item.content}\n${item.tailContent ?? ''}\n${
+            item.temporalChanges?.map((change) =>
+              `${change.subject}: ${change.oldValue} → ${change.newValue}\n${change.successors.map((successor) => successor.content).join('\n')}`,
+            ).join('\n') ?? ''
+          }`).join('\n');
       const estimatedOutputTokens = this.estimateTokens(resultText);
       const relatedConversationIds = 'query' in result
-        ? [...new Set(result.results.map((item) => item.conversationId))]
+        ? [...new Set([
+            ...result.results.map((item) => item.conversationId),
+            ...(conversationDiagnostics?.references?.map((reference) => reference.conversationId) ?? []),
+          ])]
         : [];
 
       await this.observabilityService.recordTrace({

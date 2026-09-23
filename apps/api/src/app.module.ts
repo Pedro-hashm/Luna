@@ -7,9 +7,10 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ToolsModule } from './tools/tools.module';
 import { SettingsModule } from './settings/settings.module';
 import { ObservabilityModule } from './observability/observability.module';
+import { TemporalConsolidationModule } from './temporal-consolidation/temporal-consolidation.module';
 
 @Module({
-  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule],
+  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule, TemporalConsolidationModule],
   controllers: [AppController],
   providers: [AppService],
 })

@@ -8,8 +8,9 @@ import type {
   ConversationRetrievalInput,
   ConversationRetrievalResult,
   ConversationRetrievalScope,
+  ConversationTemporalMode,
 } from './types/conversation-retrieval.types';
-import { CONVERSATION_RETRIEVAL_SCOPES } from './types/conversation-retrieval.types';
+import { CONVERSATION_RETRIEVAL_SCOPES, CONVERSATION_TEMPORAL_MODES } from './types/conversation-retrieval.types';
 
 @Injectable()
 export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
@@ -26,7 +27,7 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
       query: {
         type: 'string',
         description:
-          "Consulta semântica opcional, por exemplo 'jogos' ou 'projeto Luna'.",
+          "Consulta semântica opcional, por exemplo 'jogos' ou 'projeto Luna'. Omita para listar o que foi conversado em um período amplo; nesse caso, informe dateFrom/dateTo.",
       },
       dateFrom: {
         type: ['string', 'null'] as const,
@@ -43,6 +44,12 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
         enum: CONVERSATION_RETRIEVAL_SCOPES,
         description:
           'Escopo opcional. auto é o default e não restringe por conversa; current_conversation busca somente nesta conversa; historical exclui a conversa atual.',
+      },
+      temporalMode: {
+        type: 'string',
+        enum: CONVERSATION_TEMPORAL_MODES,
+        description:
+          'Intenção temporal: current para estado vigente (default), historical para o estado da época, both para evolução e estado atual. É independente de scope.',
       },
       maxContextTokens: {
         type: 'integer',
@@ -82,6 +89,7 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
       'dateFrom',
       'dateTo',
       'scope',
+      'temporalMode',
       'maxContextTokens',
       'includeMessages',
     ]);
@@ -100,6 +108,7 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
       dateFrom: this.optionalDateString(input.dateFrom, 'dateFrom'),
       dateTo: this.optionalDateString(input.dateTo, 'dateTo'),
       scope: this.optionalScope(input.scope),
+      temporalMode: this.optionalTemporalMode(input.temporalMode),
       maxContextTokens: this.optionalInteger(
         input.maxContextTokens,
         'maxContextTokens',
@@ -185,5 +194,17 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
     }
 
     return value as ConversationRetrievalScope;
+  }
+
+  private optionalTemporalMode(value: unknown): ConversationTemporalMode | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' ||
+        !CONVERSATION_TEMPORAL_MODES.includes(value as ConversationTemporalMode)) {
+      throw new ToolArgumentException(
+        'temporalMode',
+        `temporalMode must be one of: ${CONVERSATION_TEMPORAL_MODES.join(', ')}`,
+      );
+    }
+    return value as ConversationTemporalMode;
   }
 }
