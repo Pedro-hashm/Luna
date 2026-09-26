@@ -55,7 +55,7 @@ export class UserAgentService {
       recentMessages: [...initial.recentMessages],
       memory: { items: [] },
       preferences: {},
-      runtime: {},
+      runtime: { outputMode: initial.outputMode ?? 'text' },
     };
   }
 }

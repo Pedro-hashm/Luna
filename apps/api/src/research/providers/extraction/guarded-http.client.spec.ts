@@ -57,6 +57,15 @@ describe('GuardedHttpClient', () => {
     expect(result.body.toString()).toBe('article');
   });
 
+  it('blocks HTTPS downgrade redirects when downloading a secure asset', async () => {
+    const client = new StubClient();
+    client.responses = [
+      { status: 302, headers: { location: 'http://example.com/voice.pt' }, body: Buffer.alloc(0) },
+    ];
+    await expect(client.get('https://example.com/voice.pt', { httpsOnly: true })).rejects.toThrow('HTTPS is required for redirects');
+    expect(client.requests).toEqual(['https://example.com/voice.pt']);
+  });
+
   it('rejects a compressed response that expands beyond the byte limit', async () => {
     const client = new StubClient();
     client.responses = [

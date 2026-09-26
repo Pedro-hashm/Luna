@@ -43,6 +43,25 @@ export type ApplicationSettingsResponse = {
   researchExtractionProvider: string;
   researchCacheEnabled: boolean;
   researchBrowserFallbackEnabled: boolean;
+  voiceEnabled: boolean;
+  voiceDefaultMode: 'wake' | 'live';
+  voiceProfileId: string;
+  voiceTtsEngine: 'kokoro' | 'qwen' | 'qwen-fast' | 'f5' | 'fish';
+  fishAudioReferenceId: string;
+  voiceResponseMode: 'concise' | 'normal';
+  voiceMaxSentences: number;
+  voiceMaxWords: number;
+  voiceBargeInEnabled: boolean;
+  voiceSpeed: number;
+  wakeEnabled: boolean;
+  wakeKeyword: string;
+  wakeModel: string;
+  wakeThreshold: number;
+  wakeVerifierEnabled: boolean;
+  wakeVerifierModel: string | null;
+  wakeVerifierThreshold: number;
+  sttProvider: 'speaches';
+  ttsProvider: 'kokoro' | 'qwen' | 'qwen-fast' | 'f5' | 'fish';
 };
 
 export type ConversationChunkSettingsResponse = {

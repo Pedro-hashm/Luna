@@ -82,6 +82,25 @@ export interface ExecuteToolResponse {
 }
 
 export interface ApplicationSettings {
+  voiceEnabled: boolean;
+  voiceDefaultMode: "wake" | "live";
+  voiceProfileId: string;
+  voiceTtsEngine: "kokoro" | "qwen" | "qwen-fast" | "f5" | "fish";
+  fishAudioReferenceId: string;
+  voiceResponseMode: "concise" | "normal";
+  voiceMaxSentences: number;
+  voiceMaxWords: number;
+  voiceBargeInEnabled: boolean;
+  voiceSpeed: number;
+  wakeEnabled: boolean;
+  wakeKeyword: string;
+  wakeModel: string;
+  wakeThreshold: number;
+  wakeVerifierEnabled: boolean;
+  wakeVerifierModel: string | null;
+  wakeVerifierThreshold: number;
+  sttProvider: string;
+  ttsProvider: string;
   llmCombo: string;
   orchestratorCombo: string;
   researchEnabled: boolean;

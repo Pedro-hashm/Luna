@@ -6,6 +6,8 @@ export interface ConversationMessageResponse {
   content: string;
   model: string | null;
   createdAt: string;
+  inputMode: 'text' | 'voice' | null;
+  outputMode: 'text' | 'voice' | null;
 }
 
 export interface SendMessageResponse {

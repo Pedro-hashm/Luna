@@ -9,6 +9,7 @@ import {
   Globe2,
   Layers3,
   LoaderCircle,
+  Mic2,
   Save,
   Search,
   Settings2,
@@ -36,6 +37,9 @@ import {
   type TemporalConsolidationRunDetails,
   type TemporalConsolidationStatus,
 } from "@/lib/conversation-api";
+import { VoiceProfilesSettings } from "@/components/voice/voice-profiles-settings";
+import { WakeTrainingSettings } from "@/components/voice/wake-training-settings";
+import { WakeModelStatusBadge } from "@/components/voice/wake-model-status";
 
 type SettingsScope = "application" | "conversationChunks";
 type FieldKind = "text" | "number" | "checkbox" | "select" | "time";
@@ -65,6 +69,32 @@ type ConfigSection = {
 };
 
 const configSections: ConfigSection[] = [
+  {
+    id: "voice",
+    eyebrow: "Áudio",
+    title: "Voz e Wake Word",
+    description: "Controle a escuta, a resposta falada, a detecção de Luna e os providers do pipeline.",
+    icon: Mic2,
+    fields: [
+      { scope: "application", key: "voiceEnabled", label: "Voz ativada", description: "Permite abrir sessões de voz.", kind: "checkbox" },
+      { scope: "application", key: "voiceDefaultMode", label: "Modo padrão", description: "Wake aguarda Luna; Live escuta sem palavra de ativação.", kind: "select", options: [{ label: "Wake", value: "wake" }, { label: "Live", value: "live" }] },
+      { scope: "application", key: "wakeEnabled", label: "Wake word ativada", description: "Habilita a detecção leve de Luna no modo Wake.", kind: "checkbox" },
+      { scope: "application", key: "wakeKeyword", label: "Palavra de ativação", description: "O modelo instalado detecta Luna. Para outra palavra, é necessário treinar e instalar um modelo correspondente.", kind: "text", readOnly: true },
+      { scope: "application", key: "wakeModel", label: "Modelo wake", description: "Identificador do luna.onnx instalado no serviço wake.", kind: "text", readOnly: true },
+      { scope: "application", key: "wakeThreshold", label: "Sensibilidade do wake", description: "Score mínimo para aceitar uma detecção.", kind: "number", min: 0, max: 1, step: "0.01" },
+      { scope: "application", key: "wakeVerifierEnabled", label: "Verifier ativado", description: "Exige uma segunda verificação após a detecção inicial.", kind: "checkbox" },
+      { scope: "application", key: "wakeVerifierModel", label: "Modelo verifier", description: "Identificador do modelo de verificação opcional.", kind: "text", nullable: true },
+      { scope: "application", key: "wakeVerifierThreshold", label: "Threshold verifier", description: "Score mínimo da segunda verificação.", kind: "number", min: 0, max: 1, step: "0.01" },
+      { scope: "application", key: "voiceSpeed", label: "Velocidade da fala", description: "Controla Kokoro, F5-TTS e Fish Audio; Qwen usa o ritmo natural do clone.", kind: "number", min: 0.5, max: 2, step: "0.05" },
+      { scope: "application", key: "voiceResponseMode", label: "Resposta por voz", description: "Aplica respostas curtas ao LLM final.", kind: "select", options: [{ label: "Curta e direta", value: "concise" }, { label: "Normal", value: "normal" }] },
+      { scope: "application", key: "voiceMaxSentences", label: "Máximo de frases", description: "Limite configurável para resposta falada.", kind: "number", min: 1, max: 20 },
+      { scope: "application", key: "voiceMaxWords", label: "Máximo de palavras", description: "Limite configurável para resposta falada.", kind: "number", min: 10, max: 500 },
+      { scope: "application", key: "voiceBargeInEnabled", label: "Barge-in", description: "Interrompe o áudio da Luna quando você começa a falar.", kind: "checkbox" },
+      { scope: "application", key: "sttProvider", label: "Provider STT", description: "Provider de transcrição.", kind: "select", options: [{ label: "Speaches", value: "speaches" }] },
+      { scope: "application", key: "voiceTtsEngine", label: "Motor de voz", description: "Escolha entre os motores locais e o Fish Audio.", kind: "select", options: [{ label: "Kokoro · Dora / Luna Nobre", value: "kokoro" }, { label: "Qwen3-TTS · minha voz clonada", value: "qwen" }, { label: "Faster Qwen3-TTS · clonagem rápida", value: "qwen-fast" }, { label: "F5-TTS pt-BR · minha voz clonada", value: "f5" }, { label: "Fish Audio · S2.1 Pro grátis", value: "fish" }] },
+      { scope: "application", key: "fishAudioReferenceId", label: "Fish Audio reference_id", description: "Cole o ID da voz no Fish Audio. A chave FISH_AUDIO_API_KEY é lida da .env raiz do projeto.", kind: "text", placeholder: "Cole aqui o ID da voz" },
+    ],
+  },
   {
     id: "general",
     eyebrow: "Aplicação",
@@ -609,12 +639,16 @@ export default function SettingsPage() {
   }, []);
 
   const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+  const selectedTtsEngine = draft?.application.voiceTtsEngine ?? settings?.application.voiceTtsEngine;
   const visibleSections = useMemo(
     () =>
       configSections
         .map((section) => ({
           ...section,
           fields: section.fields.filter((field) => {
+            if (field.key === "fishAudioReferenceId" && selectedTtsEngine !== "fish") {
+              return false;
+            }
             if (!normalizedSearch) {
               return true;
             }
@@ -633,7 +667,7 @@ export default function SettingsPage() {
           }),
         }))
         .filter((section) => section.fields.length > 0),
-    [normalizedSearch],
+    [normalizedSearch, selectedTtsEngine],
   );
 
   function updateValue(
@@ -1002,6 +1036,16 @@ export default function SettingsPage() {
                                 onCompare={() => void runRerankerComparison()}
                               />
                             </div>
+                          ) : null}
+                          {section.id === "voice" ? (
+                            <>
+                              <div className="sm:col-span-2"><WakeModelStatusBadge /></div>
+                              <VoiceProfilesSettings engine={draft?.application.voiceTtsEngine ?? "kokoro"} selectedProfileId={draft?.application.voiceProfileId ?? settings?.application.voiceProfileId ?? "pf_dora"} onSelected={(id) => {
+                                setSettings((current) => current ? { ...current, application: { ...current.application, voiceProfileId: id } } : current);
+                                setDraft((current) => current ? { ...current, application: { ...current.application, voiceProfileId: id } } : current);
+                              }} />
+                              <WakeTrainingSettings />
+                            </>
                           ) : null}
                           {section.id === "temporal-consolidation" ? (
                             <TemporalConsolidationPanel

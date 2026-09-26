@@ -8,9 +8,10 @@ import { ToolsModule } from './tools/tools.module';
 import { SettingsModule } from './settings/settings.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { TemporalConsolidationModule } from './temporal-consolidation/temporal-consolidation.module';
+import { VoiceModule } from './voice/voice.module';
 
 @Module({
-  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule, TemporalConsolidationModule],
+  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule, TemporalConsolidationModule, VoiceModule],
   controllers: [AppController],
   providers: [AppService],
 })

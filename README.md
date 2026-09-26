@@ -8,6 +8,8 @@ O Compose agora fica na raiz do projeto e usa o nome `luna-v2`. Ele sobe:
 - Ollama usando a GPU, com `qwen3:4b-instruct`, `qwen3-embedding:0.6b` e o modelo de teste `qwen3.5:4b`;
 - uma etapa de `prisma migrate deploy`;
 - SearXNG para descoberta de fontes na rede interna;
+- Speaches para STT e Kokoro para TTS, reutilizando as imagens e caches;
+- openWakeWord local para detectar "Luna" com um modelo customizado;
 - API NestJS na porta `8000`;
 - frontend Next.js na porta `3000`.
 
@@ -19,14 +21,23 @@ Copie a configuração opcional e suba a stack:
 
 ```powershell
 Copy-Item .env.example .env
+docker volume create apps_luna_postgres_data
+docker volume create luna_luna-ollama-data
 pnpm docker:up
 ```
+
+`docker volume create` reaproveita esses volumes se já existirem; não apaga as
+conversas nem os modelos do Luna anterior.
 
 O V2 reutiliza por padrão o volume `luna_luna-ollama-data` do Luna anterior. O `ollama-init` confirma as três tags e reutiliza blobs já presentes; ele baixa apenas os modelos ou camadas que estiverem ausentes. Caso seja um ambiente novo, isso representa cerca de 2.5 GB para o Qwen de chat, 639 MB para o embedding e 3.4 GB para o `qwen3.5:4b`. A API espera as migrations e a preparação dos modelos terminarem antes de iniciar.
 
 O provider local do Ollama é iniciado com uma janela de contexto de `8192` tokens. Esse valor é aplicado no servidor Ollama, portanto vale para os combos que usam o provider `ollama-local`; não é uma configuração individual de combo.
 
 O frontend fica em `http://localhost:3000`, a API em `http://localhost:8000` e o Ollama em `http://localhost:11435`.
+
+A interface de voz abre em `/voice` ou a partir de uma conversa. Ela usa a mesma
+Conversation e registra VoiceSessions separadas para estados e eventos. A
+arquitetura, treinamento e testes estão em [Voz da Luna V2](docs/voice/voice.md).
 
 ### Migração do Compose antigo
 

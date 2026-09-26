@@ -103,6 +103,191 @@ services:
       timeout: 5s
       retries: 12
 
+  # Uses the existing Speaches image and the legacy Luna model-cache name.
+  speaches:
+    image: ghcr.io/speaches-ai/speaches@sha256:6ec12ebf890a17e0d4b242a8ba9e0eb1fb836e60e8a3c857aea9838d541579ac
+    container_name: luna-v2-speaches
+    gpus: all
+    restart: unless-stopped
+    environment:
+      WHISPER__INFERENCE_DEVICE: cuda
+      WHISPER__COMPUTE_TYPE: float16
+      STT_MODEL_TTL: "60"
+      HF_HUB_CACHE: /home/ubuntu/.cache/huggingface
+    volumes:
+      - speaches_models:/home/ubuntu/.cache/huggingface
+    ports:
+      - "127.0.0.1:${LUNA_V2_SPEACHES_PORT:-8003}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  speaches-model-init:
+    image: curlimages/curl:8.12.1
+    command:
+      - "--fail"
+      - "--retry"
+      - "30"
+      - "--retry-connrefused"
+      - "--retry-delay"
+      - "2"
+      - "-X"
+      - "POST"
+      - "http://speaches:8000/v1/models/${SPEACHES_STT_MODEL:-Systran/faster-whisper-small}"
+    depends_on:
+      speaches:
+        condition: service_healthy
+    restart: "no"
+
+  kokoro:
+    image: luna-v2-kokoro:local
+    build:
+      context: .
+      dockerfile: infra/kokoro/Dockerfile
+    container_name: luna-v2-kokoro
+    restart: unless-stopped
+    environment:
+      KOKORO_DEVICE: cpu
+      KOKORO_PRELOAD_LANGS: p
+      MAX_CONCURRENCY: "1"
+      VOICES_DIR: /voices
+    volumes:
+      - kokoro_cache:/root/.cache
+      - voice_packs:/voices:ro
+    ports:
+      - "127.0.0.1:${LUNA_V2_KOKORO_PORT:-8002}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  qwen-tts:
+    image: luna-v2-qwen-tts:local
+    build:
+      context: .
+      dockerfile: services/qwen-tts/Dockerfile
+    container_name: luna-v2-qwen-tts
+    gpus: all
+    restart: unless-stopped
+    environment:
+      QWEN_TTS_MODEL: Qwen/Qwen3-TTS-12Hz-0.6B-Base
+      QWEN_REFERENCE_AUDIO: /reference/Luna-Voice.wav
+      QWEN_REFERENCE_TEXT: /reference/Luna-Voice.txt
+      QWEN_IDLE_UNLOAD_SECONDS: "60"
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ./tools/qwen-voice-cloning/data:/reference:ro
+      - type: bind
+        source: ${USERPROFILE}/.cache/huggingface
+        target: /root/.cache/huggingface
+    ports:
+      - "127.0.0.1:8101:8100"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  qwen-tts-fast:
+    image: luna-v2-qwen-tts-fast:local
+    build:
+      context: .
+      dockerfile: services/qwen-tts-fast/Dockerfile
+    container_name: luna-v2-qwen-tts-fast
+    gpus: all
+    restart: unless-stopped
+    environment:
+      QWEN_TTS_MODEL: Qwen/Qwen3-TTS-12Hz-0.6B-Base
+      QWEN_REFERENCE_AUDIO: /reference/Luna-Voice.wav
+      QWEN_REFERENCE_TEXT: /reference/Luna-Voice.txt
+      QWEN_IDLE_UNLOAD_SECONDS: "60"
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ./tools/qwen-voice-cloning/data:/reference:ro
+      - type: bind
+        source: ${USERPROFILE}/.cache/huggingface
+        target: /root/.cache/huggingface
+    ports:
+      - "127.0.0.1:8103:8100"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  f5-tts:
+    image: luna-v2-f5-tts:local
+    build:
+      context: .
+      dockerfile: services/f5-tts/Dockerfile
+    container_name: luna-v2-f5-tts
+    gpus: all
+    restart: unless-stopped
+    environment:
+      F5_MODEL_ID: firstpixel/F5-TTS-pt-br
+      F5_MODEL_FILE: pt-br/model_last.safetensors
+      F5_REFERENCE_AUDIO: /reference/Luna-Voice-F5.wav
+      F5_REFERENCE_TEXT: /reference/Luna-Voice-F5.txt
+      F5_NFE_STEP: "16"
+      F5_IDLE_UNLOAD_SECONDS: "60"
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ./tools/qwen-voice-cloning/data:/reference:ro
+      - type: bind
+        source: ${USERPROFILE}/.cache/huggingface
+        target: /root/.cache/huggingface
+    ports:
+      - "127.0.0.1:8102:8100"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  wakeword:
+    image: luna-v2-wakeword:local
+    build:
+      context: .
+      dockerfile: services/wakeword/Dockerfile
+    container_name: luna-v2-wakeword
+    restart: unless-stopped
+    environment:
+      WAKE_MODEL_PATH: /app/models/luna.onnx
+    volumes:
+      - ./services/wakeword/models:/app/models:ro
+
+  wakeword-training:
+    profiles: [wakeword-training]
+    image: luna-v2-wakeword-training:local
+    build:
+      context: .
+      dockerfile: tools/wakeword-training/Dockerfile
+    environment:
+      KOKORO_BASE_URL: http://kokoro:8000
+      QWEN_TTS_BASE_URL: http://qwen-tts:8100
+      WAKEWORD_BASE_URL: http://wakeword:8765
+    volumes:
+      - ./tools/wakeword-training/data:/workspace/tools/wakeword-training/data
+      - ./tools/wakeword-training/models:/workspace/tools/wakeword-training/models
+      - ./tools/wakeword-training/reports:/workspace/tools/wakeword-training/reports
+      - ./services/wakeword/models:/workspace/services/wakeword/models
+    depends_on:
+      kokoro:
+        condition: service_healthy
+      qwen-tts:
+        condition: service_healthy
+
+  voice-packs-init:
+    image: node:22-bookworm-slim
+    user: root
+    command: ["chown", "-R", "1000:1000", "/voices"]
+    volumes:
+      - voice_packs:/voices
+    restart: "no"
+
   migrate:
     image: luna-v2-migrate:local
     container_name: luna-v2-migrate
@@ -138,6 +323,16 @@ services:
       SEARXNG_TIMEOUT_MS: ${SEARXNG_TIMEOUT_MS:-8000}
       WEB_EXTRACT_TIMEOUT_MS: ${WEB_EXTRACT_TIMEOUT_MS:-12000}
       WEB_EXTRACT_MAX_BYTES: ${WEB_EXTRACT_MAX_BYTES:-2000000}
+      SPEACHES_BASE_URL: http://speaches:8000
+      SPEACHES_STT_MODEL: ${SPEACHES_STT_MODEL:-Systran/faster-whisper-small}
+      SPEACHES_STT_LANGUAGE: ${SPEACHES_STT_LANGUAGE:-pt}
+      KOKORO_BASE_URL: http://kokoro:8000
+      QWEN_TTS_FAST_BASE_URL: http://qwen-tts-fast:8100
+      F5_TTS_BASE_URL: http://f5-tts:8100
+      FISH_AUDIO_API_KEY: ${FISH_AUDIO_API_KEY:-}
+      WAKEWORD_BASE_URL: http://wakeword:8765
+      VOICE_PACKS_DIR: /voices
+      WAKE_TRAINING_DATA_DIR: /wake-training-data
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -147,10 +342,25 @@ services:
         condition: service_started
       searxng:
         condition: service_healthy
+      speaches-model-init:
+        condition: service_completed_successfully
+      kokoro:
+        condition: service_healthy
+      f5-tts:
+        condition: service_healthy
+      qwen-tts-fast:
+        condition: service_healthy
+      wakeword:
+        condition: service_started
+      voice-packs-init:
+        condition: service_completed_successfully
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "${LUNA_V2_API_PORT:-8000}:8000"
+    volumes:
+      - voice_packs:/voices
+      - ./tools/wakeword-training/data:/wake-training-data
     healthcheck:
       test:
         [
@@ -172,6 +382,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         API_URL: http://api:8000
+        NEXT_PUBLIC_VOICE_WS_URL: ${NEXT_PUBLIC_VOICE_WS_URL:-}
     environment:
       API_URL: http://api:8000
     depends_on:
@@ -196,3 +407,9 @@ volumes:
     name: luna-v2-reranker-models
   searxng_cache:
     name: luna-v2-searxng-cache
+  speaches_models:
+    name: ${LUNA_V2_SPEACHES_VOLUME:-luna_luna-speaches-models}
+  kokoro_cache:
+    name: ${LUNA_V2_KOKORO_VOLUME:-luna_luna-kokoro-cache}
+  voice_packs:
+    name: luna-v2-voice-packs

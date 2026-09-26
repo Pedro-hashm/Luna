@@ -78,6 +78,25 @@ model ApplicationSettings {
   researchExtractionProvider         String  @default("static-with-browser-fallback") @map("research_extraction_provider")
   researchCacheEnabled               Boolean @default(true) @map("research_cache_enabled")
   researchBrowserFallbackEnabled     Boolean @default(true) @map("research_browser_fallback_enabled")
+  voiceEnabled                       Boolean @default(true) @map("voice_enabled")
+  voiceDefaultMode                   String  @default("wake") @map("voice_default_mode")
+  voiceProfileId                     String  @default("pf_dora") @map("voice_profile_id")
+  voiceTtsEngine                     String  @default("kokoro") @map("voice_tts_engine")
+  fishAudioReferenceId               String  @default("") @map("fish_audio_reference_id")
+  voiceResponseMode                  String  @default("concise") @map("voice_response_mode")
+  voiceMaxSentences                  Int     @default(3) @map("voice_max_sentences")
+  voiceMaxWords                      Int     @default(70) @map("voice_max_words")
+  voiceBargeInEnabled                Boolean @default(true) @map("voice_barge_in_enabled")
+  voiceSpeed                         Float   @default(1) @map("voice_speed")
+  wakeEnabled                        Boolean @default(true) @map("wake_enabled")
+  wakeKeyword                        String  @default("Luna") @map("wake_keyword")
+  wakeModel                          String  @default("luna") @map("wake_model")
+  wakeThreshold                      Float   @default(0.97) @map("wake_threshold")
+  wakeVerifierEnabled                Boolean @default(false) @map("wake_verifier_enabled")
+  wakeVerifierModel                  String? @map("wake_verifier_model")
+  wakeVerifierThreshold              Float   @default(0.5) @map("wake_verifier_threshold")
+  sttProvider                        String  @default("speaches") @map("stt_provider")
+  ttsProvider                        String  @default("kokoro") @map("tts_provider")
   createdAt                       DateTime @default(now()) @map("created_at")
   updatedAt                       DateTime @updatedAt @map("updated_at")
 
@@ -95,6 +114,7 @@ model Conversation {
   chunks           ConversationChunk[]
   observabilityTraces ObservabilityTrace[]
   researchRuns     ResearchRun[]
+  voiceSessions    VoiceSession[]
 
   @@map("conversations")
 }
@@ -114,9 +134,55 @@ model Message {
   temporalPredecessorRelation TemporalRelation? @relation("TemporalPredecessor")
   temporalSuccessorRelations  TemporalRelation[] @relation("TemporalSuccessor")
   researchRuns      ResearchRun[]
+  inputMode         String?             @map("input_mode")
+  outputMode        String?             @map("output_mode")
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+model VoiceSession {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @map("conversation_id") @db.Uuid
+  mode           String
+  state          String       @default("idle")
+  metadata       Json?        @default("{}")
+  startedAt      DateTime     @default(now()) @map("started_at")
+  endedAt        DateTime?    @map("ended_at")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  events         VoiceEvent[]
+
+  @@index([conversationId, startedAt])
+  @@map("voice_sessions")
+}
+
+model VoiceEvent {
+  id        String       @id @default(uuid()) @db.Uuid
+  sessionId String       @map("session_id") @db.Uuid
+  type      String
+  data      Json         @default("{}")
+  createdAt DateTime     @default(now()) @map("created_at")
+  session   VoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("voice_events")
+}
+
+model VoiceProfile {
+  id         String   @id
+  name       String
+  engine     String   @default("kokoro")
+  voiceId    String   @unique @map("voice_id")
+  language   String?
+  source     String   @default("builtin")
+  sourceUrl  String?  @map("source_url") @db.Text
+  license    String?
+  format     String?
+  assetPath  String?  @map("asset_path")
+  metadata   Json?    @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("voice_profiles")
 }
 
 model ConversationEvidence {

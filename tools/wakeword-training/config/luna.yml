@@ -1,0 +1,42 @@
+keyword: Luna
+sample_rate: 16000
+kokoro:
+  # Reuses the running Kokoro-FastAPI service. Override via KOKORO_BASE_URL.
+  base_url: http://localhost:8880
+  model: kokoro
+  positive_language: Brazilian Portuguese
+  voices: [pf_dora, pm_alex, pm_santa]
+  speeds: [0.85, 1.0, 1.15]
+  count_per_voice_speed: 100
+custom_negative_phrases:
+  - lua
+  - luva
+  - rua
+  - lona
+  - lunares
+  - ilumina
+  - A lua está cheia.
+  - O aluno chegou.
+train:
+  seed: 42
+  clip_seconds: 2.0
+  epochs: 30
+  batch_size: 64
+  learning_rate: 0.0003
+  positive_augmentations: 4
+  negative_windows_per_clip: 4
+  max_train_background_windows: 2000
+  hard_negative_phrases: [lona, lunares]
+  early_stopping_patience: 5
+  hard_negative_refine_epochs: 8
+  min_positive_train: 700
+  min_negative_train: 1000
+  min_positive_test_real: 20
+  min_background_test_hours: 1.0
+evaluation:
+  # Provisional synthetic model: 0.97 passed the held-out smoke set. Retune
+  # with real speech and ambient data before promoting a validated model.
+  threshold: 0.97
+  cooldown_seconds: 2.0
+  target_false_accepts_per_hour: 0.5
+  target_recall: 0.95

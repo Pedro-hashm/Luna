@@ -25,19 +25,20 @@ export class ConversationController {
 
     @Post("messages")
     createConversation(
-        @Body() { content }: SendMessageDto,
+        @Body() { content, inputMode, outputMode }: SendMessageDto,
     ): Promise<SendMessageResponse> {
-        return this.conversationService.createConversationWithMessage(content);
+        return this.conversationService.createConversationWithMessage(content, { inputMode, outputMode });
     }
 
     @Post(":conversationId/messages")
     addMessage(
         @Param("conversationId") conversationId: string,
-        @Body() { content }: SendMessageDto,
+        @Body() { content, inputMode, outputMode }: SendMessageDto,
     ): Promise<SendMessageResponse> {
         return this.conversationService.addMessageToConversation(
             conversationId,
             content,
+            { inputMode, outputMode },
         );
     }
 }

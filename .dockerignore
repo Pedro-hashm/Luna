@@ -14,3 +14,11 @@ coverage
 !.env.example
 !**/.env.example
 *.log
+**/__pycache__
+*.py[cod]
+tools/wakeword-training/data
+tools/wakeword-training/models
+tools/wakeword-training/reports
+tools/kokoro-voice-training/data
+tools/kokoro-voice-training/output
+services/wakeword/models/*.onnx

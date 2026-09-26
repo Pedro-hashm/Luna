@@ -129,4 +129,21 @@ describe('SettingsService Conversation Evidence setting', () => {
     await expect(service.updateSettings({ application: { researchMaxRounds: 100 } }))
       .rejects.toThrow('researchMaxRounds must be an integer between 1 and 5');
   });
+
+  it('validates persistent voice response and wake settings', async () => {
+    const { service, update } = harness();
+    await service.updateSettings({ application: {
+      voiceEnabled: true, voiceDefaultMode: 'live', voiceResponseMode: 'concise',
+      voiceMaxSentences: 2, voiceMaxWords: 45, wakeThreshold: 0.7,
+      voiceBargeInEnabled: false,
+    } });
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      voiceDefaultMode: 'live', voiceMaxSentences: 2, voiceMaxWords: 45,
+      wakeThreshold: 0.7, voiceBargeInEnabled: false,
+    }) }));
+    await expect(service.updateSettings({ application: { wakeThreshold: 1.2 } })).rejects.toThrow('wakeThreshold');
+    await expect(service.updateSettings({ application: { voiceDefaultMode: 'always' as never } })).rejects.toThrow('voiceDefaultMode');
+    await expect(service.updateSettings({ application: { wakeKeyword: 'Outra' } })).rejects.toThrow('wakeKeyword');
+    await expect(service.updateSettings({ application: { wakeModel: 'other.onnx' } })).rejects.toThrow('wakeModel');
+  });
 });

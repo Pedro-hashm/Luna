@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { ApplicationSettings } from '@prisma/client';
 import { LlmService } from '../llm/llm.service';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
 import { SettingsService } from '../settings/settings.service';
@@ -28,7 +29,7 @@ export class LunaService {
 
   async generate(input: LunaGenerateInput): Promise<LunaGenerateResult> {
     const settings = await this.settingsService.getApplicationSettings();
-    const promptMessages = this.buildPromptMessages(input);
+    const promptMessages = this.buildPromptMessages(input, settings);
     let response: LlmResponse;
     try {
       response = await this.llmService.chat({
@@ -62,7 +63,7 @@ export class LunaService {
     };
   }
 
-  private buildPromptMessages(input: LunaGenerateInput): ChatMessage[] {
+  private buildPromptMessages(input: LunaGenerateInput, voiceSettings: ApplicationSettings): ChatMessage[] {
     const messages: ChatMessage[] = [
       { role: 'system', content: LUNA_BASE_PROMPT },
       {
@@ -70,6 +71,12 @@ export class LunaService {
         content: `Current iteration time in the application timezone: ${input.context.currentDateTime}`,
       },
     ];
+
+    if (input.context.runtime?.outputMode === 'voice' && (voiceSettings.voiceResponseMode ?? 'concise') === 'concise') {
+      const maxSentences = voiceSettings.voiceMaxSentences ?? 3;
+      const maxWords = voiceSettings.voiceMaxWords ?? 70;
+      messages.push({ role: 'system', content: `VOICE RESPONSE MODE: Responda de forma curta e direta, com a informação principal primeiro. Evite introduções, repetição da pergunta, listas longas e detalhes secundários. No máximo ${maxSentences} frases e ${maxWords} palavras. Preserve citações necessárias em pesquisas.` });
+    }
 
     const webExecutions = input.toolExecutions.filter((execution) => execution.tool === 'web_research');
     if (webExecutions.length > 0) {

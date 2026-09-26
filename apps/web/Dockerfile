@@ -18,8 +18,10 @@ RUN pnpm install --frozen-lockfile
 FROM dependencies AS build
 
 ARG API_URL=http://api:8000
+ARG NEXT_PUBLIC_VOICE_WS_URL=
 
 ENV API_URL=${API_URL}
+ENV NEXT_PUBLIC_VOICE_WS_URL=${NEXT_PUBLIC_VOICE_WS_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY apps/web apps/web

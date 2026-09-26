@@ -2,6 +2,24 @@ import { LunaService } from './luna.service';
 import type { LunaGenerateInput } from './luna.types';
 
 describe('LunaService', () => {
+  it('applies configurable concise guidance only to voice output', async () => {
+    const chat = jest.fn().mockResolvedValue({ content: 'Canberra.', model: 'test-model' });
+    const service = new LunaService({ chat } as never, {
+      getApplicationSettings: jest.fn().mockResolvedValue({ llmCombo: 'local-general', voiceResponseMode: 'concise', voiceMaxSentences: 2, voiceMaxWords: 40 }),
+    } as never);
+    const input = {
+      context: { currentDateTime: '2026-09-23T12:00:00-03:00', recentMessages: [], runtime: { outputMode: 'voice' } },
+      finalInstructions: '', toolExecutions: [],
+    } as unknown as LunaGenerateInput;
+    await service.generate(input);
+    const voicePrompt = chat.mock.calls[0][0].messages as Array<{ content: string }>;
+    expect(voicePrompt.some((message) => message.content.includes('VOICE RESPONSE MODE') && message.content.includes('40 palavras'))).toBe(true);
+    chat.mockClear();
+    input.context.runtime.outputMode = 'text';
+    await service.generate(input);
+    const textPrompt = chat.mock.calls[0][0].messages as Array<{ content: string }>;
+    expect(textPrompt.some((message) => message.content.includes('VOICE RESPONSE MODE'))).toBe(false);
+  });
   it('keeps web evidence in a lower-priority message and requires registered source URLs', async () => {
     const chat = jest.fn().mockResolvedValue({ content: 'Resposta.', model: 'test-model' });
     const service = new LunaService(

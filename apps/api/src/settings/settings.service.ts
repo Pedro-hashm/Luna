@@ -51,6 +51,10 @@ export class SettingsService {
 
     async updateSettings(input: UpdateSettingsRequest): Promise<SettingsResponse> {
         if (input.application) {
+            if (input.application.voiceProfileId !== undefined && input.application.voiceProfileId !== 'pf_dora') {
+                const selected = await this.prisma.voiceProfile.findUnique({ where: { id: input.application.voiceProfileId } });
+                if (!selected) throw new BadRequestException('voiceProfileId does not exist');
+            }
             await this.prisma.applicationSettings.update({
                 where: { id: 1 },
                 data: this.applicationUpdateData(input.application),
@@ -331,6 +335,42 @@ export class SettingsService {
             data.researchBrowserFallbackEnabled = this.requiredBoolean(input.researchBrowserFallbackEnabled, "researchBrowserFallbackEnabled");
         }
 
+        if (input.voiceEnabled !== undefined) data.voiceEnabled = this.requiredBoolean(input.voiceEnabled, "voiceEnabled");
+        if (input.voiceDefaultMode !== undefined) data.voiceDefaultMode = this.requiredChoice(input.voiceDefaultMode, "voiceDefaultMode", ["wake", "live"]);
+        if (input.voiceProfileId !== undefined) data.voiceProfileId = this.requiredText(input.voiceProfileId, "voiceProfileId");
+        if (input.fishAudioReferenceId !== undefined) {
+            if (typeof input.fishAudioReferenceId !== "string") {
+                throw new BadRequestException("fishAudioReferenceId must be a string");
+            }
+            data.fishAudioReferenceId = input.fishAudioReferenceId.trim();
+        }
+        if (input.voiceResponseMode !== undefined) data.voiceResponseMode = this.requiredChoice(input.voiceResponseMode, "voiceResponseMode", ["concise", "normal"]);
+        if (input.voiceMaxSentences !== undefined) data.voiceMaxSentences = this.requiredInteger(input.voiceMaxSentences, "voiceMaxSentences", 1, 20);
+        if (input.voiceMaxWords !== undefined) data.voiceMaxWords = this.requiredInteger(input.voiceMaxWords, "voiceMaxWords", 10, 500);
+        if (input.voiceBargeInEnabled !== undefined) data.voiceBargeInEnabled = this.requiredBoolean(input.voiceBargeInEnabled, "voiceBargeInEnabled");
+        if (input.voiceSpeed !== undefined) data.voiceSpeed = this.requiredNumber(input.voiceSpeed, "voiceSpeed", 0.5, 2);
+        if (input.wakeEnabled !== undefined) data.wakeEnabled = this.requiredBoolean(input.wakeEnabled, "wakeEnabled");
+        // This deployment loads only the installed Luna ONNX artifact. Reject
+        // values that would appear configurable but leave detection unchanged.
+        if (input.wakeKeyword !== undefined) data.wakeKeyword = this.requiredChoice(input.wakeKeyword, "wakeKeyword", ["Luna"]);
+        if (input.wakeModel !== undefined) data.wakeModel = this.requiredChoice(input.wakeModel, "wakeModel", ["luna"]);
+        if (input.wakeThreshold !== undefined) data.wakeThreshold = this.requiredNumber(input.wakeThreshold, "wakeThreshold", 0, 1);
+        if (input.wakeVerifierEnabled !== undefined) data.wakeVerifierEnabled = this.requiredBoolean(input.wakeVerifierEnabled, "wakeVerifierEnabled");
+        if (input.wakeVerifierModel !== undefined) {
+            if (input.wakeVerifierModel !== null && !/^[A-Za-z0-9_-]+\.pkl$/u.test(input.wakeVerifierModel)) {
+                throw new BadRequestException("wakeVerifierModel must be a .pkl basename");
+            }
+            data.wakeVerifierModel = input.wakeVerifierModel;
+        }
+        if (input.wakeVerifierThreshold !== undefined) data.wakeVerifierThreshold = this.requiredNumber(input.wakeVerifierThreshold, "wakeVerifierThreshold", 0, 1);
+        if (input.sttProvider !== undefined) data.sttProvider = this.requiredChoice(input.sttProvider, "sttProvider", ["speaches"]);
+        const selectedTtsEngine = input.voiceTtsEngine ?? input.ttsProvider;
+        if (selectedTtsEngine !== undefined) {
+            const engine = this.requiredChoice(selectedTtsEngine, "voiceTtsEngine", ["kokoro", "qwen", "qwen-fast", "f5", "fish"]);
+            data.voiceTtsEngine = engine;
+            data.ttsProvider = engine;
+        }
+
         return data;
     }
 
@@ -503,6 +543,13 @@ export class SettingsService {
         return value;
     }
 
+    private requiredNumber(value: unknown, field: string, minimum: number, maximum: number): number {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
+            throw new BadRequestException(`${field} must be a number between ${minimum} and ${maximum}`);
+        }
+        return value;
+    }
+
     private optionalInteger(
         value: number | null,
         field: string,
@@ -564,6 +611,25 @@ export class SettingsService {
             researchExtractionProvider: settings.researchExtractionProvider,
             researchCacheEnabled: settings.researchCacheEnabled,
             researchBrowserFallbackEnabled: settings.researchBrowserFallbackEnabled,
+            voiceEnabled: settings.voiceEnabled,
+            voiceDefaultMode: settings.voiceDefaultMode as ApplicationSettingsResponse["voiceDefaultMode"],
+            voiceProfileId: settings.voiceProfileId,
+            voiceTtsEngine: settings.voiceTtsEngine as ApplicationSettingsResponse["voiceTtsEngine"],
+            fishAudioReferenceId: settings.fishAudioReferenceId,
+            voiceResponseMode: settings.voiceResponseMode as ApplicationSettingsResponse["voiceResponseMode"],
+            voiceMaxSentences: settings.voiceMaxSentences,
+            voiceMaxWords: settings.voiceMaxWords,
+            voiceBargeInEnabled: settings.voiceBargeInEnabled,
+            voiceSpeed: settings.voiceSpeed,
+            wakeEnabled: settings.wakeEnabled,
+            wakeKeyword: settings.wakeKeyword,
+            wakeModel: settings.wakeModel,
+            wakeThreshold: settings.wakeThreshold,
+            wakeVerifierEnabled: settings.wakeVerifierEnabled,
+            wakeVerifierModel: settings.wakeVerifierModel,
+            wakeVerifierThreshold: settings.wakeVerifierThreshold,
+            sttProvider: settings.sttProvider as ApplicationSettingsResponse["sttProvider"],
+            ttsProvider: settings.ttsProvider as ApplicationSettingsResponse["ttsProvider"],
         };
     }
 }

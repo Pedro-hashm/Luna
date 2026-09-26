@@ -25,9 +25,9 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
     additionalProperties: false,
     properties: {
       query: {
-        type: 'string',
+        type: ['string', 'null'] as const,
         description:
-          "Consulta semântica opcional, por exemplo 'jogos' ou 'projeto Luna'. Omita para listar o que foi conversado em um período amplo; nesse caso, informe dateFrom/dateTo.",
+          "Consulta semântica opcional, por exemplo 'jogos' ou 'projeto Luna'. Use null ou omita para listar o que foi conversado em um período amplo; nesse caso, informe dateFrom/dateTo.",
       },
       dateFrom: {
         type: ['string', 'null'] as const,
@@ -121,7 +121,7 @@ export class ConversationRetrievalTool implements RegisteredTool, OnModuleInit {
   }
 
   private optionalString(value: unknown, field: string): string | undefined {
-    if (value === undefined) {
+    if (value === undefined || value === null) {
       return undefined;
     }
 

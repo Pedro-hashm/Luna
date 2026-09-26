@@ -47,15 +47,17 @@ export class ConversationService {
 
   async createConversationWithMessage(
     content: string,
+    modes?: { inputMode?: 'text' | 'voice'; outputMode?: 'text' | 'voice' },
   ): Promise<SendMessageResponse> {
-    return this.processMessage(undefined, content);
+    return this.processMessage(undefined, content, modes);
   }
 
   async addMessageToConversation(
     conversationId: string,
     content: string,
+    modes?: { inputMode?: 'text' | 'voice'; outputMode?: 'text' | 'voice' },
   ): Promise<SendMessageResponse> {
-    return this.processMessage(conversationId, content);
+    return this.processMessage(conversationId, content, modes);
   }
 
   async listConversations(): Promise<ConversationListItemResponse[]> {
@@ -152,7 +154,13 @@ export class ConversationService {
   private async processMessage(
     conversationId: string | undefined,
     content: string,
+    modes?: { inputMode?: 'text' | 'voice'; outputMode?: 'text' | 'voice' },
   ): Promise<SendMessageResponse> {
+    const inputMode = modes?.inputMode ?? 'text';
+    const outputMode = modes?.outputMode ?? 'text';
+    if (!['text', 'voice'].includes(inputMode) || !['text', 'voice'].includes(outputMode)) {
+      throw new BadRequestException('inputMode and outputMode must be text or voice');
+    }
     const normalizedContent = content.trim();
 
     if (!normalizedContent) {
@@ -207,6 +215,7 @@ export class ConversationService {
         conversationId: conversation.id,
         role: MessageRole.user,
         content: normalizedContent,
+        inputMode,
       },
     });
     const recentMessages = this.contextManager.buildRecentMessages(
@@ -240,6 +249,7 @@ export class ConversationService {
         currentMessageId: userMessage.id,
         currentDateTime,
         recentMessages,
+        outputMode,
       });
     } catch (error) {
       const completedAt = new Date();
@@ -283,6 +293,7 @@ export class ConversationService {
         role: MessageRole.assistant,
         content: execution.luna.response.content,
         model: execution.luna.response.model,
+        outputMode,
       },
     });
     const persistenceStageMs = Date.now() - persistenceStartedAt;
@@ -616,6 +627,8 @@ export class ConversationService {
       content: string;
       model: string | null;
       createdAt: Date;
+      inputMode?: string | null;
+      outputMode?: string | null;
     },
     timeZone: string,
   ): ConversationMessageResponse {
@@ -625,6 +638,8 @@ export class ConversationService {
       content: message.content,
       model: message.model,
       createdAt: formatApplicationDateTime(message.createdAt, timeZone),
+      inputMode: (message.inputMode as 'text' | 'voice' | null | undefined) ?? null,
+      outputMode: (message.outputMode as 'text' | 'voice' | null | undefined) ?? null,
     };
   }
 }

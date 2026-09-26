@@ -20,6 +20,11 @@
 
 As features de observabilidade incluem extensões preparadas para módulos futuros. As dependências e os estados incompletos estão registradas na seção [Dependências futuras da interface](observability/observability.md#dependencias-futuras-da-interface).
 
+## Voz
+
+- [VoiceSession, providers, perfis e treinamento](voice/voice.md)
+- [Validação da camada de voz](voice/validation-2026-09-24.md)
+
 ## Orchestrator
 
 - [Catálogo de tools](orchestrator/tools.md)

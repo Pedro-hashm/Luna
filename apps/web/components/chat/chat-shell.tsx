@@ -8,11 +8,13 @@ import {
   LoaderCircle,
   Menu,
   MessageSquare,
+  Mic2,
   Sparkles,
   Wrench,
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Settings as SettingsIcon } from "lucide-react";
 import {
   useEffect,
@@ -67,14 +69,15 @@ function toUiMessage(message: ConversationMessage): UiMessage {
   };
 }
 
-export function ChatShell() {
+export function ChatShell({ initialConversationId }: { initialConversationId?: string }) {
+  const router = useRouter();
   const [messages, setMessages] = useState<UiMessage[]>([welcomeMessage]);
   const [draft, setDraft] = useState("");
   const [conversationId, setConversationId] = useState<string>();
   const [conversationTitle, setConversationTitle] = useState("Nova conversa");
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isConversationLoading, setIsConversationLoading] = useState(false);
+  const [isConversationLoading, setIsConversationLoading] = useState(Boolean(initialConversationId));
   const [isConversationsLoading, setIsConversationsLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [historyError, setHistoryError] = useState<string>();
@@ -150,6 +153,23 @@ export function ChatShell() {
   }, []);
 
   useEffect(() => {
+    if (!initialConversationId) return;
+    let active = true;
+    void getConversation(initialConversationId).then((conversation) => {
+      if (!active) return;
+      setConversationId(conversation.id);
+      setConversationTitle(conversation.title);
+      setMessages(conversation.messages.length ? conversation.messages.map(toUiMessage) : [welcomeMessage]);
+      setError(undefined);
+    }).catch((requestError: unknown) => {
+      if (active) setError(requestError instanceof Error ? requestError.message : "Não foi possível abrir essa conversa.");
+    }).finally(() => {
+      if (active) setIsConversationLoading(false);
+    });
+    return () => { active = false; };
+  }, [initialConversationId]);
+
+  useEffect(() => {
     viewportRef.current?.scrollTo({
       top: viewportRef.current.scrollHeight,
       behavior: "smooth",
@@ -170,11 +190,13 @@ export function ChatShell() {
     setBrainStage(undefined);
     setCompletedBrainStages([]);
     setSidebarOpen(false);
+    router.push("/");
   };
 
   const openConversation = async (selectedConversationId: string) => {
     if (selectedConversationId === conversationId) {
       setSidebarOpen(false);
+      router.push(`/chat/${encodeURIComponent(selectedConversationId)}`);
       return;
     }
 
@@ -197,6 +219,7 @@ export function ChatShell() {
       );
       setDraft("");
       setSidebarOpen(false);
+      router.push(`/chat/${encodeURIComponent(conversation.id)}`);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -294,6 +317,7 @@ export function ChatShell() {
         );
 
         setConversationId(response.conversationId);
+        if (isFirstMessage) router.replace(`/chat/${encodeURIComponent(response.conversationId)}`);
         if (isFirstMessage) {
           setConversationTitle(titleFromMessage(content));
         }
@@ -384,6 +408,13 @@ export function ChatShell() {
             </div>
 
             <div className="hidden items-center gap-2 sm:flex">
+              <Link
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500"
+                href={conversationId ? `/voice/${encodeURIComponent(conversationId)}` : "/voice"}
+              >
+                <Mic2 className="size-3.5" />
+                Abrir voz
+              </Link>
               <Link
                 className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs text-slate-500 transition hover:bg-white/75 hover:text-slate-900"
                 href={conversationId ? `/observability?conversation=${conversationId}` : "/observability"}
@@ -479,6 +510,13 @@ export function ChatShell() {
                     <Wrench className="size-3.5" />
                     Tools
                   </button>
+                  <Link
+                    aria-label="Abrir voz nesta conversa"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium text-indigo-600 transition hover:bg-indigo-50"
+                    href={conversationId ? `/voice/${encodeURIComponent(conversationId)}` : "/voice"}
+                  >
+                    <Mic2 className="size-3.5" /> Voz
+                  </Link>
                   {toolsMode ? (
                     <>
                       <select

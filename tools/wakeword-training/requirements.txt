@@ -1,0 +1,14 @@
+# Use Python 3.11. Keep training dependencies outside the wake runtime image.
+numpy>=1.26,<3
+scipy>=1.11,<2
+soundfile>=0.12,<1
+sounddevice>=0.4,<1
+PyYAML>=6,<7
+requests>=2.31,<3
+onnxruntime>=1.17,<2
+onnx>=1.16,<2
+torch>=2.2,<3
+scikit-learn>=1.4,<2
+tqdm>=4.66,<5
+torchinfo>=1.8,<2
+torchmetrics>=1.3,<2

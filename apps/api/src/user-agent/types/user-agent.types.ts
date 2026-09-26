@@ -22,6 +22,7 @@ export type UserAgentInitialState = {
   currentMessageId: string;
   currentDateTime: string;
   recentMessages: RuntimeMessage[];
+  outputMode?: 'text' | 'voice';
 };
 
 export type UserAgentState = UserAgentInitialState & {

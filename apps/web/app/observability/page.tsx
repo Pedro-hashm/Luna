@@ -16,6 +16,7 @@ import {
   Layers3,
   LoaderCircle,
   MessageSquare,
+  Mic2,
   RefreshCw,
   Sparkles,
   TriangleAlert,
@@ -24,6 +25,7 @@ import {
 import { useEffect, useState } from "react";
 import { BrainFlow } from "@/components/observability/brain-flow";
 import { ResearchRunInspector } from "@/components/observability/research-run-inspector";
+import { VoiceSessionsInspector } from "@/components/observability/voice-sessions-inspector";
 import {
   getConversationInspector,
   getConversationResearchRuns,
@@ -57,7 +59,7 @@ const emptyMetrics: ObservabilityMetrics = {
 };
 
 export default function ObservabilityPage() {
-  const [activeSection, setActiveSection] = useState<"metrics" | "flow" | "research" | "prompts">("metrics");
+  const [activeSection, setActiveSection] = useState<"metrics" | "flow" | "research" | "prompts" | "voice">("metrics");
   const [rangeDays, setRangeDays] = useState(14);
   const [metrics, setMetrics] = useState<ObservabilityMetrics>();
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
@@ -98,6 +100,8 @@ export default function ObservabilityPage() {
         if (queryView === "research") {
           setResearchLoading(true);
           setActiveSection("research");
+        } else if (queryView === "voice") {
+          setActiveSection("voice");
         }
         setError(undefined);
       } catch (requestError) {
@@ -155,7 +159,8 @@ export default function ObservabilityPage() {
       .then(({ runs }) => {
         if (!isCurrent) return;
         setResearchRuns(runs);
-        setSelectedResearchRunId(runs[0]?.id);
+        const requestedRun = new URLSearchParams(window.location.search).get("run");
+        setSelectedResearchRunId(runs.find((run) => run.id === requestedRun)?.id ?? runs[0]?.id);
         setResearchLoading(runs.length > 0);
         setResearchError(undefined);
       })
@@ -213,7 +218,7 @@ export default function ObservabilityPage() {
                 Luna · observabilidade
               </p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-                {activeSection === "metrics" ? "Métricas e contexto" : activeSection === "flow" ? "Fluxo e inspectors" : activeSection === "research" ? "Pesquisa na Web" : "Prompts recebidos"}
+                {activeSection === "metrics" ? "Métricas e contexto" : activeSection === "flow" ? "Fluxo e inspectors" : activeSection === "research" ? "Pesquisa na Web" : activeSection === "voice" ? "Sessões de voz" : "Prompts recebidos"}
               </h1>
             </div>
           </div>
@@ -269,6 +274,7 @@ export default function ObservabilityPage() {
             ["metrics", "Métricas", BarChart3],
             ["flow", "Fluxo e inspectors", Brain],
             ["research", "Pesquisa na Web", Globe2],
+            ["voice", "Sessões de voz", Mic2],
             ["prompts", "Prompts recebidos", FileText],
           ] as const).map(([section, label, Icon]) => (
             <button
@@ -496,6 +502,17 @@ export default function ObservabilityPage() {
                 selectedConversationId={selectedConversationId}
                 selectedTraceId={activeTraceId}
               />
+            ) : null}
+            {activeSection === "voice" ? (
+              <>
+                <section className="glass mt-6 rounded-[1.7rem] p-5 sm:p-6">
+                  <label className="text-xs font-semibold text-slate-700" htmlFor="voice-conversation">Conversation</label>
+                  <select className="ml-3 max-w-full rounded-xl border border-white/90 bg-white/70 px-3 py-2 text-xs text-slate-700" id="voice-conversation" onChange={(event) => setSelectedConversationId(event.target.value)} value={selectedConversationId ?? ""}>
+                    {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.title} · {conversation.id}</option>)}
+                  </select>
+                </section>
+                {selectedConversationId ? <VoiceSessionsInspector conversationId={selectedConversationId} /> : <EmptyInline label="Nenhuma Conversation disponível." />}
+              </>
             ) : null}
           </>
         )}

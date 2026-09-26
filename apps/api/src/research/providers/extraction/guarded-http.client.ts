@@ -9,6 +9,7 @@ export interface GuardedFetchOptions {
   maxBytes?: number;
   maxRedirects?: number;
   allowedDomains?: readonly string[];
+  httpsOnly?: boolean;
 }
 
 export interface GuardedHttpResponse {
@@ -84,6 +85,7 @@ export class GuardedHttpClient {
     const maxRedirects = boundedInteger(options.maxRedirects, 5, 10);
     const deadline = Date.now() + timeoutMs;
     let url = validateWebUrl(input, options.allowedDomains);
+    if (options.httpsOnly && url.protocol !== 'https:') throw new WebFetchError('HTTPS is required');
 
     for (let redirect = 0; redirect <= maxRedirects; redirect++) {
       const remaining = deadline - Date.now();
@@ -117,6 +119,7 @@ export class GuardedHttpClient {
           throw new WebFetchError('Redirect location is invalid');
         }
         url = validateWebUrl(destinationUrl, options.allowedDomains);
+        if (options.httpsOnly && url.protocol !== 'https:') throw new WebFetchError('HTTPS is required for redirects');
         continue;
       }
 
