@@ -312,11 +312,47 @@ export class VoiceGateway {
     await this.voice.event(client.sessionId, 'voice.tts.started', { provider: ttsProvider.name, engine: settings.voiceTtsEngine, voice: voiceId, profileId: usesFishAudio ? null : settings.voiceProfileId });
     const ttsStarted = Date.now();
     try {
-      const result = await ttsProvider.synthesize(this.forSpeech(text), voiceId, settings.voiceSpeed, client.ttsAbort.signal);
-      if (generation !== client.generation) return;
-      await this.voice.event(client.sessionId, 'voice.tts.chunk', { bytes: result.audio.length });
-      await this.voice.event(client.sessionId, 'voice.tts.completed', { latencyMs: Date.now() - ttsStarted, bytes: result.audio.length });
-      this.send(client, { type: 'audio', mimeType: result.mimeType, data: result.audio.toString('base64') });
+      if (settings.voiceTtsEngine === 'qwen-fast' && settings.voiceTtsStreamingEnabled && this.fasterQwenTts) {
+        const stream = await this.fasterQwenTts.synthesizeStream(this.forSpeech(text), voiceId, settings.voiceSpeed, client.ttsAbort.signal);
+        if (generation !== client.generation || client.ttsAbort.signal.aborted) {
+          await stream.cancel();
+          return;
+        }
+
+        this.send(client, { type: 'audio.stream.start', sampleRate: stream.sampleRate, encoding: 'pcm_s16le' });
+        let pending = Buffer.alloc(0);
+        let totalBytes = 0;
+        let chunkCount = 0;
+        try {
+          for await (const received of stream.chunks) {
+            if (generation !== client.generation || client.ttsAbort.signal.aborted || client.socket.readyState !== WebSocket.OPEN) break;
+            const audio = pending.length ? Buffer.concat([pending, received]) : received;
+            const alignedLength = audio.length - (audio.length % 2);
+            if (alignedLength > 0) {
+              const chunk = audio.subarray(0, alignedLength);
+              this.send(client, { type: 'audio.stream.chunk', data: chunk.toString('base64') });
+              totalBytes += chunk.length;
+              chunkCount += 1;
+            }
+            pending = alignedLength < audio.length ? Buffer.from(audio.subarray(alignedLength)) : Buffer.alloc(0);
+          }
+        } catch (error) {
+          this.send(client, { type: 'audio.cancel' });
+          throw error;
+        }
+
+        if (generation !== client.generation || client.ttsAbort.signal.aborted || client.socket.readyState !== WebSocket.OPEN) return;
+        if (pending.length > 0) throw new Error('Faster Qwen3-TTS returned a truncated PCM sample');
+        this.send(client, { type: 'audio.stream.end' });
+        await this.voice.event(client.sessionId, 'voice.tts.chunk', { bytes: totalBytes, chunks: chunkCount });
+        await this.voice.event(client.sessionId, 'voice.tts.completed', { latencyMs: Date.now() - ttsStarted, bytes: totalBytes, chunks: chunkCount, streaming: true });
+      } else {
+        const result = await ttsProvider.synthesize(this.forSpeech(text), voiceId, settings.voiceSpeed, client.ttsAbort.signal);
+        if (generation !== client.generation) return;
+        await this.voice.event(client.sessionId, 'voice.tts.chunk', { bytes: result.audio.length });
+        await this.voice.event(client.sessionId, 'voice.tts.completed', { latencyMs: Date.now() - ttsStarted, bytes: result.audio.length });
+        this.send(client, { type: 'audio', mimeType: result.mimeType, data: result.audio.toString('base64') });
+      }
     } catch (error) {
       if (client.ttsAbort.signal.aborted) return;
       throw error;

@@ -115,6 +115,49 @@ export class FasterQwenTtsProvider implements TtsProvider {
     return { audio: Buffer.from(await response.arrayBuffer()), mimeType: response.headers.get('content-type')?.split(';')[0] ?? 'audio/wav' };
   }
 
+  async synthesizeStream(text: string, _voiceId: string, _speed: number, signal?: AbortSignal): Promise<{
+    chunks: AsyncIterable<Buffer>;
+    sampleRate: number;
+    cancel: () => Promise<void>;
+  }> {
+    const response = await requestProvider(this.name, endpoint(process.env.QWEN_TTS_FAST_BASE_URL ?? 'http://qwen-tts-fast:8100', '/v1/audio/speech/stream'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input: text }),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000),
+    });
+    if (!response.ok) throw await errorFor(response, this.name);
+    const sampleRate = Number(response.headers.get('x-audio-sample-rate'));
+    if (!Number.isInteger(sampleRate) || sampleRate < 8_000 || sampleRate > 96_000) {
+      throw new Error(`${this.name} returned an invalid audio sample rate`);
+    }
+    if (!response.body) throw new Error(`${this.name} returned no streaming audio body`);
+
+    const reader = response.body.getReader();
+    const chunks = (async function* (): AsyncGenerator<Buffer> {
+      let completed = false;
+      try {
+        while (true) {
+          const item = await reader.read();
+          if (item.done) {
+            completed = true;
+            return;
+          }
+          if (item.value?.byteLength) yield Buffer.from(item.value);
+        }
+      } finally {
+        if (!completed) await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+      }
+    })();
+
+    return {
+      chunks,
+      sampleRate,
+      cancel: async () => { await reader.cancel().catch(() => undefined); },
+    };
+  }
+
   async listVoices(): Promise<string[]> { return ['luna-clone']; }
 }
 

@@ -52,6 +52,7 @@ export type ApplicationSettingsResponse = {
   voiceMaxSentences: number;
   voiceMaxWords: number;
   voiceBargeInEnabled: boolean;
+  voiceTtsStreamingEnabled: boolean;
   voiceSpeed: number;
   wakeEnabled: boolean;
   wakeKeyword: string;

@@ -87,6 +87,7 @@ model ApplicationSettings {
   voiceMaxSentences                  Int     @default(3) @map("voice_max_sentences")
   voiceMaxWords                      Int     @default(70) @map("voice_max_words")
   voiceBargeInEnabled                Boolean @default(true) @map("voice_barge_in_enabled")
+  voiceTtsStreamingEnabled           Boolean @default(true) @map("voice_tts_streaming_enabled")
   voiceSpeed                         Float   @default(1) @map("voice_speed")
   wakeEnabled                        Boolean @default(true) @map("wake_enabled")
   wakeKeyword                        String  @default("Luna") @map("wake_keyword")

@@ -348,6 +348,7 @@ export class SettingsService {
         if (input.voiceMaxSentences !== undefined) data.voiceMaxSentences = this.requiredInteger(input.voiceMaxSentences, "voiceMaxSentences", 1, 20);
         if (input.voiceMaxWords !== undefined) data.voiceMaxWords = this.requiredInteger(input.voiceMaxWords, "voiceMaxWords", 10, 500);
         if (input.voiceBargeInEnabled !== undefined) data.voiceBargeInEnabled = this.requiredBoolean(input.voiceBargeInEnabled, "voiceBargeInEnabled");
+        if (input.voiceTtsStreamingEnabled !== undefined) data.voiceTtsStreamingEnabled = this.requiredBoolean(input.voiceTtsStreamingEnabled, "voiceTtsStreamingEnabled");
         if (input.voiceSpeed !== undefined) data.voiceSpeed = this.requiredNumber(input.voiceSpeed, "voiceSpeed", 0.5, 2);
         if (input.wakeEnabled !== undefined) data.wakeEnabled = this.requiredBoolean(input.wakeEnabled, "wakeEnabled");
         // This deployment loads only the installed Luna ONNX artifact. Reject
@@ -620,6 +621,7 @@ export class SettingsService {
             voiceMaxSentences: settings.voiceMaxSentences,
             voiceMaxWords: settings.voiceMaxWords,
             voiceBargeInEnabled: settings.voiceBargeInEnabled,
+            voiceTtsStreamingEnabled: settings.voiceTtsStreamingEnabled,
             voiceSpeed: settings.voiceSpeed,
             wakeEnabled: settings.wakeEnabled,
             wakeKeyword: settings.wakeKeyword,

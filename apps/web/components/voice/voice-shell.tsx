@@ -96,6 +96,7 @@ type ServerEvent = {
   message?: string;
   mimeType?: string;
   data?: string;
+  sampleRate?: number;
 };
 
 export function VoiceShell({ conversationId, initialSessionId }: { conversationId: string; initialSessionId?: string }) {
@@ -123,7 +124,8 @@ export function VoiceShell({ conversationId, initialSessionId }: { conversationI
   const captureCtxRef = useRef<AudioContext | undefined>(undefined);
   const playbackCtxRef = useRef<AudioContext | undefined>(undefined);
   const workletRef = useRef<AudioWorkletNode | undefined>(undefined);
-  const sourceRef = useRef<AudioBufferSourceNode | undefined>(undefined);
+  const playbackSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const playbackAnalyserRef = useRef<AnalyserNode | undefined>(undefined);
   const playbackFrameRef = useRef<number | undefined>(undefined);
   const stateRef = useRef<VoiceState>("idle");
   const modeRef = useRef<VoiceMode>("wake");
@@ -134,6 +136,11 @@ export function VoiceShell({ conversationId, initialSessionId }: { conversationI
   const lastLoudRef = useRef(0);
   const lastVisualRef = useRef(0);
   const playbackGenerationRef = useRef(0);
+  const playbackNextTimeRef = useRef(0);
+  const playbackSampleRateRef = useRef(24_000);
+  const playbackStreamActiveRef = useRef(false);
+  const playbackStreamEndedRef = useRef(false);
+  const playbackCompletionSentRef = useRef(false);
   const listeningArmedRef = useRef(false);
   const wakeNoiseFloorRef = useRef(0.002);
   const wakeGateOpenRef = useRef(false);
@@ -183,15 +190,20 @@ export function VoiceShell({ conversationId, initialSessionId }: { conversationI
 
   function stopPlayback() {
     playbackGenerationRef.current += 1;
-    if (playbackFrameRef.current) cancelAnimationFrame(playbackFrameRef.current);
+    if (playbackFrameRef.current !== undefined) cancelAnimationFrame(playbackFrameRef.current);
     playbackFrameRef.current = undefined;
-    const source = sourceRef.current;
-    sourceRef.current = undefined;
-    if (source) {
+    for (const source of playbackSourcesRef.current) {
       source.onended = null;
       try { source.stop(); } catch { /* already stopped */ }
       source.disconnect();
     }
+    playbackSourcesRef.current.clear();
+    playbackAnalyserRef.current?.disconnect();
+    playbackAnalyserRef.current = undefined;
+    playbackNextTimeRef.current = 0;
+    playbackStreamActiveRef.current = false;
+    playbackStreamEndedRef.current = false;
+    playbackCompletionSentRef.current = false;
     setOutputLevel(0);
   }
 
@@ -245,28 +257,106 @@ export function VoiceShell({ conversationId, initialSessionId }: { conversationI
     source.buffer = audio;
     source.connect(analyser);
     analyser.connect(context.destination);
-    sourceRef.current = source;
+    playbackAnalyserRef.current = analyser;
+    playbackSourcesRef.current.add(source);
+    source.onended = () => {
+      playbackSourcesRef.current.delete(source);
+      source.disconnect();
+      completePlayback(generation);
+    };
+    source.start();
+    monitorPlayback(generation, analyser);
+  }
+
+  function monitorPlayback(generation: number, analyser: AnalyserNode) {
+    if (playbackFrameRef.current !== undefined) return;
     const samples = new Float32Array(analyser.fftSize);
-    function measure() {
-      if (generation !== playbackGenerationRef.current || sourceRef.current !== source) return;
+    const measure = () => {
+      playbackFrameRef.current = undefined;
+      if (generation !== playbackGenerationRef.current || playbackAnalyserRef.current !== analyser) return;
       analyser.getFloatTimeDomainData(samples);
       let power = 0;
       for (const sample of samples) power += sample * sample;
       setOutputLevel(Math.min(1, Math.sqrt(power / samples.length) * 6));
-      playbackFrameRef.current = requestAnimationFrame(measure);
-    }
-    source.onended = () => {
-      if (generation !== playbackGenerationRef.current) return;
-      if (playbackFrameRef.current) cancelAnimationFrame(playbackFrameRef.current);
-      sourceRef.current = undefined;
-      analyser.disconnect();
-      source.disconnect();
-      setOutputLevel(0);
-      sendControl("playback.complete");
-      addEvent("Áudio reproduzido");
+      if (playbackSourcesRef.current.size > 0) playbackFrameRef.current = requestAnimationFrame(measure);
+      else setOutputLevel(0);
     };
-    source.start();
-    measure();
+    playbackFrameRef.current = requestAnimationFrame(measure);
+  }
+
+  function completePlayback(generation: number) {
+    if (generation !== playbackGenerationRef.current || playbackSourcesRef.current.size > 0) return;
+    if (playbackStreamActiveRef.current && !playbackStreamEndedRef.current) return;
+    if (playbackCompletionSentRef.current) return;
+    playbackCompletionSentRef.current = true;
+    if (playbackFrameRef.current !== undefined) cancelAnimationFrame(playbackFrameRef.current);
+    playbackFrameRef.current = undefined;
+    playbackAnalyserRef.current?.disconnect();
+    playbackAnalyserRef.current = undefined;
+    playbackNextTimeRef.current = 0;
+    playbackStreamActiveRef.current = false;
+    playbackStreamEndedRef.current = false;
+    setOutputLevel(0);
+    sendControl("playback.complete");
+    addEvent("Áudio reproduzido");
+  }
+
+  function startAudioStream(sampleRate: number) {
+    if (!Number.isInteger(sampleRate) || sampleRate < 8_000 || sampleRate > 96_000) {
+      throw new Error("A taxa de amostragem do áudio em streaming é inválida.");
+    }
+    stopPlayback();
+    const context = playbackCtxRef.current ?? new AudioContext();
+    playbackCtxRef.current = context;
+    if (context.state === "suspended") void context.resume().catch(() => undefined);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.connect(context.destination);
+    playbackAnalyserRef.current = analyser;
+    playbackSampleRateRef.current = sampleRate;
+    playbackNextTimeRef.current = context.currentTime + 0.05;
+    playbackStreamActiveRef.current = true;
+    playbackStreamEndedRef.current = false;
+    playbackCompletionSentRef.current = false;
+  }
+
+  function playAudioStreamChunk(encoded: string) {
+    if (!playbackStreamActiveRef.current) return;
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+    const sampleCount = Math.floor(bytes.byteLength / 2);
+    if (!sampleCount) return;
+    const context = playbackCtxRef.current;
+    const analyser = playbackAnalyserRef.current;
+    if (!context || !analyser) return;
+
+    const audio = context.createBuffer(1, sampleCount, playbackSampleRateRef.current);
+    const channel = audio.getChannelData(0);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, sampleCount * 2);
+    for (let index = 0; index < sampleCount; index += 1) {
+      const sample = view.getInt16(index * 2, true);
+      channel[index] = sample < 0 ? sample / 32768 : sample / 32767;
+    }
+
+    const generation = playbackGenerationRef.current;
+    const source = context.createBufferSource();
+    source.buffer = audio;
+    source.connect(analyser);
+    playbackSourcesRef.current.add(source);
+    const startAt = Math.max(context.currentTime + 0.02, playbackNextTimeRef.current);
+    playbackNextTimeRef.current = startAt + audio.duration;
+    source.onended = () => {
+      playbackSourcesRef.current.delete(source);
+      source.disconnect();
+      completePlayback(generation);
+    };
+    source.start(startAt);
+    monitorPlayback(generation, analyser);
+  }
+
+  function finishAudioStream() {
+    if (!playbackStreamActiveRef.current) return;
+    playbackStreamEndedRef.current = true;
+    completePlayback(playbackGenerationRef.current);
   }
 
   function closeAudio(endSession = false) {
@@ -455,6 +545,22 @@ export function VoiceShell({ conversationId, initialSessionId }: { conversationI
         } else if (payload.type === "response" && typeof payload.text === "string") {
           dispatch({ type: "response", text: payload.text });
           addEvent("Resposta gerada");
+        } else if (payload.type === "audio.stream.start") {
+          try { startAudioStream(payload.sampleRate ?? 0); }
+          catch (cause) {
+            stopPlayback();
+            dispatch({ type: "error", message: cause instanceof Error ? cause.message : "Não foi possível iniciar o áudio em streaming." });
+            sendControl("playback.complete");
+          }
+        } else if (payload.type === "audio.stream.chunk" && typeof payload.data === "string") {
+          try { playAudioStreamChunk(payload.data); }
+          catch (cause) {
+            stopPlayback();
+            dispatch({ type: "error", message: cause instanceof Error ? cause.message : "Não foi possível reproduzir um bloco de áudio." });
+            sendControl("playback.complete");
+          }
+        } else if (payload.type === "audio.stream.end") {
+          finishAudioStream();
         } else if (payload.type === "audio" && typeof payload.data === "string") {
           void playAudio(payload.data).catch((cause: unknown) => {
             dispatch({ type: "error", message: cause instanceof Error ? cause.message : "Não foi possível reproduzir o áudio." });
@@ -463,6 +569,7 @@ export function VoiceShell({ conversationId, initialSessionId }: { conversationI
         } else if (payload.type === "audio.cancel") {
           stopPlayback();
         } else if (payload.type === "error") {
+          stopPlayback();
           dispatch({ type: "error", message: payload.message ?? "O serviço de voz encontrou um erro." });
           addEvent("Erro no pipeline de voz");
         }
