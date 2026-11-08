@@ -404,6 +404,7 @@ export class ConversationService {
     });
 
     return {
+      requestId,
       conversationId: conversation.id,
       messages: [
         this.toMessageResponse(userMessage, settings.appTimezone),

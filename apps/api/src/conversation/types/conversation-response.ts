@@ -11,6 +11,7 @@ export interface ConversationMessageResponse {
 }
 
 export interface SendMessageResponse {
+  requestId: string;
   conversationId: string;
   messages: ConversationMessageResponse[];
 }

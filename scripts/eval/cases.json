@@ -1,0 +1,27 @@
+[
+  {
+    "id": "resposta-pt",
+    "turns": [
+      {
+        "input": "Responda exatamente com o texto Jatobá 17.",
+        "contains": [
+          "Jatobá 17"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "contexto-imediato",
+    "turns": [
+      {
+        "input": "Nesta conversa, o codinome fictício da missão é Neblina 47. Responda apenas que entendeu."
+      },
+      {
+        "input": "Qual foi o codinome da missão que eu informei? Responda apenas o codinome.",
+        "contains": [
+          "Neblina 47"
+        ]
+      }
+    ]
+  }
+]
