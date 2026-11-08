@@ -138,7 +138,7 @@ export class DiscordVoiceService {
   }
 
   async processWorkerTurn(value: unknown) {
-    const input = object(value, ['guildId', 'userId', 'sessionId', 'username', 'transcript']);
+    const input = object(value, ['guildId', 'userId', 'sessionId', 'username', 'transcript', 'inputMode']);
     const guildId = snowflake(input.guildId);
     const userId = snowflake(input.userId);
     const sessionId = input.sessionId;
@@ -153,13 +153,17 @@ export class DiscordVoiceService {
     if (typeof transcript !== 'string' || !transcript.trim() || transcript.length > 1_200) {
       throw new BadRequestException('Não reconheci uma fala válida para responder.');
     }
+    const inputMode = input.inputMode === undefined ? 'voice' : input.inputMode;
+    if (inputMode !== 'voice' && inputMode !== 'text') {
+      throw new BadRequestException('O modo de entrada do turno é inválido.');
+    }
     const configuration = await this.configuration();
     if (!configuration.enabled || configuration.guildId !== guildId) {
       throw new ForbiddenException('A integração de voz não está ativa neste servidor.');
     }
     const response = await this.conversations.addDiscordMessage({
       guildId, userId, sessionId, username: username.trim(), transcript: transcript.trim(),
-      owner: configuration.ownerDiscordUserId === userId,
+      owner: configuration.ownerDiscordUserId === userId, inputMode,
     });
     const audio = await this.voiceSynthesis.synthesizeText(
       response.messages[1].content,

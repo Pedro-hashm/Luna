@@ -161,6 +161,24 @@ test('chat wake preserves an existing wake-word opt-in after its one turn', asyn
   assert.equal(room.has('alice'), true);
 });
 
+test('typed chat query skips cue and capture, answers in voice, and removes its temporary listener', async () => {
+  const { events, room } = setup();
+  room.onTemporaryEnd = userId => events.push({ temporaryEnd: userId });
+  assert.equal(room.add('alice', {
+    requestContext: { guildId: '42', conversationSessionId: 'call-1', username: 'Alice' },
+    temporary: true,
+  }), true);
+  assert.equal(room.askText('alice', 'Resuma a conversa.', { guildId: '42', conversationSessionId: 'call-1', username: 'Alice' }), true);
+  await next();
+  const request = events.find(event => event.command);
+  assert.equal(request.command, 'Resuma a conversa.');
+  assert.equal(request.context.inputMode, 'text');
+  assert.equal(events.includes('cue'), false);
+  assert.equal(events.includes('reply'), true);
+  assert.equal(events.find(event => event.temporaryEnd).temporaryEnd, 'alice');
+  assert.equal(room.has('alice'), false);
+});
+
 test('leaving while STT is running cancels reply and discards participant context', async () => {
   let finish;
   let cancelled;
@@ -208,13 +226,13 @@ test('Discord voice forwards the transcript to the authenticated Luna runtime fo
   });
   const audio = await providers.answer('Qual é o meu jogo favorito?', {
     guildId: '42', userId: '99', conversationSessionId: 'call-uuid',
-    username: 'Pedro', voiceSessionId: 'voice-uuid',
+    username: 'Pedro', voiceSessionId: 'voice-uuid', inputMode: 'text',
   });
   assert.equal(request.url, 'http://api:8000/discord-voice/worker/turn');
   assert.equal(request.options.headers.authorization, 'Bearer worker-secret');
   assert.deepEqual(JSON.parse(request.options.body), {
     guildId: '42', userId: '99', sessionId: 'call-uuid', username: 'Pedro',
-    transcript: 'Qual é o meu jogo favorito?',
+    transcript: 'Qual é o meu jogo favorito?', inputMode: 'text',
   });
   assert.deepEqual(audio, Buffer.from('mp3-audio'));
 });

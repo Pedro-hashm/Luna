@@ -221,6 +221,41 @@ export class VoiceRoom {
     return true;
   }
 
+  askText(userId, text, requestContext = {}) {
+    if (this.turn || typeof text !== 'string' || !text.trim()) return false;
+    const existing = this.speakers.get(userId);
+    if (!existing && !this.add(userId, { requestContext, temporary: true })) return false;
+    const speaker = this.speakers.get(userId);
+    speaker.requestContext = requestContext;
+    const turn = {
+      speaker,
+      controller: new AbortController(),
+      removeSpeakerAfter: speaker.temporary,
+      cue: Promise.resolve(),
+    };
+    this.turn = turn;
+    void (async () => {
+      try {
+        const audio = await this.providers.answer(text.trim(), {
+          ...speaker.requestContext,
+          userId: speaker.userId,
+          voiceSessionId: speaker.sessionId,
+          inputMode: 'text',
+        }, turn.controller.signal);
+        if (turn.controller.signal.aborted) return;
+        await this.playReply(audio, turn.controller.signal);
+        if (!turn.controller.signal.aborted) this.log('turn_complete');
+      } catch {
+        if (!turn.controller.signal.aborted) this.log('turn_error');
+      } finally {
+        if (this.turn === turn) this.turn = undefined;
+        if (turn.removeSpeakerAfter && this.speakers.get(userId) === speaker) this.remove(userId);
+      }
+    })();
+    this.log('chat_text_requested');
+    return true;
+  }
+
   capture(turn, pcm, now, gap) {
     if (gap > 80) turn.buffers.push(Buffer.alloc(Math.round(Math.min(400, gap) * 16) * 2));
     turn.buffers.push(pcm);

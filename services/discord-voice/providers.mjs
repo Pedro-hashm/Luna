@@ -107,6 +107,7 @@ export function createProviders(env = process.env) {
           sessionId: context.conversationSessionId,
           username: context.username,
           transcript: text,
+          inputMode: context.inputMode || 'voice',
         }),
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + secret },
       }, signal, 180_000);

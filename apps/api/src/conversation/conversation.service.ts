@@ -73,6 +73,7 @@ export class ConversationService {
     username: string;
     transcript: string;
     owner: boolean;
+    inputMode?: 'text' | 'voice';
   }): Promise<SendMessageResponse> {
     const sourceKey = `${input.guildId}:${input.sessionId}:${input.userId}`;
     const memoryScope = input.owner ? 'global' : `discord:${input.guildId}:${input.userId}`;
@@ -100,7 +101,9 @@ export class ConversationService {
     if (conversation.memoryScope !== memoryScope) {
       conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { memoryScope } });
     }
-    return this.processMessage(conversation.id, input.transcript, { inputMode: 'voice', outputMode: 'voice' });
+    return this.processMessage(conversation.id, input.transcript, {
+      inputMode: input.inputMode ?? 'voice', outputMode: 'voice',
+    });
   }
 
   async listConversations(): Promise<ConversationListItemResponse[]> {

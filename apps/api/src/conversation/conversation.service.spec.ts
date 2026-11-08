@@ -61,4 +61,14 @@ describe('ConversationService Discord persistence', () => {
     expect(update).toHaveBeenCalledWith({ where: { id: conversationId }, data: { memoryScope: 'global' } });
     expect(processMessage).toHaveBeenCalledWith(conversationId, 'Minha memória.', { inputMode: 'voice', outputMode: 'voice' });
   });
+
+  it('stores a typed Discord query as text input while keeping the reply voice-enabled', async () => {
+    await service.addDiscordMessage({
+      guildId: '42', userId: '99', sessionId, username: 'Alice', transcript: 'Resuma a conversa.',
+      owner: false, inputMode: 'text',
+    });
+    expect(processMessage).toHaveBeenCalledWith(conversationId, 'Resuma a conversa.', {
+      inputMode: 'text', outputMode: 'voice',
+    });
+  });
 });

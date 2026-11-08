@@ -21,7 +21,9 @@ const commands = new SlashCommandBuilder()
   .setName('luna')
   .setDescription('Usa a Luna no canal de voz configurado')
   .addSubcommand(command => command.setName('entrar').setDescription('Conecta a Luna ao canal de voz'))
-  .addSubcommand(command => command.setName('perguntar').setDescription('Toca o bip e escuta uma pergunta sua'))
+  .addSubcommand(command => command.setName('perguntar').setDescription('Pergunta por texto ou fala com a Luna')
+    .addStringOption(option => option.setName('query').setDescription('Pergunta para a Luna responder em voz')
+      .setMinLength(1).setMaxLength(1_200).setRequired(false)))
   .addSubcommand(command => command.setName('participar').setDescription('Autoriza escuta temporária para chamar a Luna'))
   .addSubcommand(command => command.setName('parar').setDescription('Encerra sua participação e apaga seu contexto da call'))
   .addSubcommand(command => command.setName('sair').setDescription('Desconecta a Luna do canal de voz'));
@@ -329,6 +331,21 @@ async function handleCommand(interaction) {
     };
     if (!current.room.add(interaction.user.id, { requestContext, temporary: true })) {
       await reply('A call já tem quatro participantes ativos. Tente novamente quando houver uma vaga.');
+      return;
+    }
+    const query = interaction.options.getString('query');
+    if (query !== null) {
+      if (!query.trim()) {
+        if (!alreadyParticipating) dropParticipant(current, interaction.user.id);
+        await reply('Escreva uma pergunta ou deixe o campo vazio para falar com a Luna.');
+        return;
+      }
+      if (!current.room.askText(interaction.user.id, query.trim(), requestContext)) {
+        if (!alreadyParticipating) dropParticipant(current, interaction.user.id);
+        await reply('Já existe outro turno em andamento. Tente novamente em instantes.');
+        return;
+      }
+      await reply('Pergunta enviada. A Luna vai responder em voz pela conversa normal e salvar o turno na interface.');
       return;
     }
     if (!current.room.listenOnce(interaction.user.id, requestContext)) {

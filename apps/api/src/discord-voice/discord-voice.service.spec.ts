@@ -49,6 +49,24 @@ describe('DiscordVoiceService worker turns', () => {
     expect(addDiscordMessage).toHaveBeenCalledWith(expect.objectContaining({ owner: false }));
   });
 
+  it('preserves typed query mode while still synthesizing the answer', async () => {
+    await service.processWorkerTurn({
+      guildId: '42', userId: '100', sessionId: 'f57dff0d-6228-4dc5-9678-a18ea54d385d',
+      username: 'Pedro', transcript: 'Resuma a conversa.', inputMode: 'text',
+    });
+    expect(addDiscordMessage).toHaveBeenCalledWith(expect.objectContaining({
+      transcript: 'Resuma a conversa.', inputMode: 'text', owner: true,
+    }));
+    expect(synthesizeText).toHaveBeenCalledWith('Resposta sintética.', expect.any(AbortSignal));
+  });
+
+  it('rejects unsupported input modes', async () => {
+    await expect(service.processWorkerTurn({
+      guildId: '42', userId: '100', sessionId: 'f57dff0d-6228-4dc5-9678-a18ea54d385d',
+      username: 'Pedro', transcript: 'Resuma a conversa.', inputMode: 'command',
+    })).rejects.toThrow('O modo de entrada do turno é inválido.');
+  });
+
   it('rejects turns from servers outside the configured integration', async () => {
     await expect(service.processWorkerTurn({
       guildId: '43', userId: '101', sessionId: 'f57dff0d-6228-4dc5-9678-a18ea54d385d',
