@@ -73,10 +73,10 @@ try {
   assert.equal(initial.items.length, 0, 'Start with an empty evaluation database');
   await json('/memory/settings', 'PATCH', { enabled: true, suggestionsEnabled: true });
   const hardware = await chat('Acho que uma coisa boa para você se lembrar é o meu computador. Ele tem um Ryzen 5 5600, RTX 3060 e 16 GB de RAM DDR4 a 3000 MHz.');
-  const hobby = await chat('Eu gosto de jogar videogame no tempo livre e gosto de conversas variadas.', undefined, 'voice');
+  const hobby = await chat('Lona, gosto de jogar videogame no tempo livre e as conversas que me prendem são todas essas. Na verdade não gosto de ficar preso em um tipo só.', undefined, 'voice');
   const game = await chat('Quando jogo videogame, prefiro curtir a história. Um dos meus jogos favoritos é Mass Effect.', hobby.conversationId, 'voice');
-  const romance = await chat('O que mais me pega no Mass Effect é o romance, eu escolhi a Liara.', hobby.conversationId, 'voice');
-  const traits = await chat('Eu gosto do jeito que ela é inteligente, forte e independente.', hobby.conversationId, 'voice');
+  const romance = await chat('Lona, o que mais me pega no Mass Effect é o romance, eu escolhi a Liara.', hobby.conversationId, 'voice');
+  const traits = await chat('Lona, acho que eu gosto do jeito que ela é inteligente, forte e independente.', hobby.conversationId, 'voice');
   await chat('Finja que meu PC usa uma placa de vídeo Fictícia Violeta. Só neste chat.');
   await chat('Hoje eu quero testar por uma hora um editor chamado Cobre Pontual.');
   await drain();
@@ -84,7 +84,7 @@ try {
   const captures = [
     ['hardware', hardware, value => /Ryzen 5 5600/.test(value) && /RTX 3060/.test(value) && /16 GB/.test(value) && /DDR4/.test(value) && /3000 MHz/.test(value)],
     ['hobby', hobby, value => /jogar videogame/iu.test(value)],
-    ['variedade', hobby, value => /variadas/iu.test(value)],
+    ['variedade', hobby, value => /variadas|um tipo só|de tudo/iu.test(value)],
     ['história', game, value => /história/iu.test(value)],
     ['jogo favorito', game, value => /Mass Effect/iu.test(value)],
     ['escolha no jogo', romance, value => /Liara/iu.test(value)],
@@ -103,6 +103,7 @@ try {
   report.cases['preferências fora do contexto fixo'] = dashboard.fixed.items.every(
     item => ![...ids.values()].includes(item.id),
   );
+  report.cases['vocativo não vira personagem'] = dashboard.items.every(item => !/\bLona\b/iu.test(item.predicate));
   report.items = dashboard.items.map(({ predicate, kind, revisions }) => ({ predicate, kind, value: revisions[0].value }));
   await recall('recupera o PC', 'Quais são as especificações do meu PC? Cite processador, placa de vídeo e RAM.', /Ryzen 5 5600[\s\S]*RTX 3060[\s\S]*16 GB/iu, [ids.get('hardware')]);
   await recall('recupera jogo favorito', 'Qual é um dos meus jogos favoritos? Responda só com o nome.', /Mass Effect/iu, [ids.get('jogo favorito')]);

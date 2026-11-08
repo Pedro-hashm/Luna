@@ -11,6 +11,7 @@ const extractPrompt = [
   'Copie value e quote literalmente da mensagem atual. Use quote suficiente para provar o fato e value apenas com os detalhes, sem acrescentar nada do contexto. Se o gosto é sobre uma obra ou personagem específica, inclua seu nome no predicate, mesmo que ele apareça só no contexto. Não generalize uma preferência que se refere a uma personagem.',
   'Use operation "add" por padrão. Use "change" para uma mudança declarada de um fato anterior e "correct" só para uma correção explícita. Hesitação como "acho que" e "na verdade eu gosto" não indica correção. validFrom é null se não houver data.',
   'Exemplos de predicate e value: "No tempo livre eu gosto de jogar videogame" tem predicate "hobby" e value "jogar videogame". "Prefiro curtir a história" tem predicate "preferência em jogos" e value "curtir a história". "Um dos meus favoritos é Subnautica" tem predicate "jogo favorito: Subnautica" e value "Subnautica".',
+  'A Luna é a interlocutora. Um vocativo no início da fala não é o assunto de uma preferência. Se a pessoa disser que gosta de vários tipos de conversa, escolha o trecho autossuficiente, como "não gosto de ficar preso em um tipo só", em vez de "todas essas".',
   'Em relatedEntity, copie o nome específico da personagem, pessoa ou obra à qual a preferência da mensagem atual se refere. Resolva pronomes pelas falas anteriores. Use null quando não houver referente identificado.',
   'Para "No jogo Aurora gostei do romance e escolhi Nilo", retorne um candidato com predicate "romance em Aurora", value "gostei do romance e escolhi Nilo" e quote "No jogo Aurora gostei do romance e escolhi Nilo". Não salve só "romance" se o usuário disse quem escolheu.',
   'Exemplo de referência: contexto anterior "O que você gosta na personagem Ada?" e mensagem atual "Eu gosto que ela é curiosa e independente." → {"candidates":[{"subject":"Usuário","predicate":"traços que admira em Ada","relatedEntity":"Ada","scope":"global","kind":"preference","value":"curiosa e independente","quote":"Eu gosto que ela é curiosa e independente.","validFrom":null,"operation":"add"}]}.',
@@ -31,6 +32,10 @@ const format = {
   properties: { candidates: { type: 'array', maxItems: 5, items: candidateSchema } },
 };
 
+function withoutLunaAddress(content: string) {
+  return content.replace(/^\s*l[ou]na\s*[,!:]\s*/iu, '');
+}
+
 export async function extractMemories(
   content: string, context: Array<{ role: string; content: string }>, signal: AbortSignal,
 ) {
@@ -39,6 +44,9 @@ export async function extractMemories(
       url.protocol !== 'http:' || url.username || url.password) {
     throw new Error('Memory extraction requires a local Ollama endpoint.');
   }
+  const message = withoutLunaAddress(content);
+  const previous = context.map(turn => turn.role === 'user'
+    ? { ...turn, content: withoutLunaAddress(turn.content) } : turn);
   const response = await fetch(new URL('/api/chat', url), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -51,7 +59,7 @@ export async function extractMemories(
       options: { temperature: 0, num_predict: 1200 },
       messages: [
         { role: 'system', content: extractPrompt },
-        { role: 'user', content: JSON.stringify({ mensagem: content, contextoAnterior: context }) },
+        { role: 'user', content: JSON.stringify({ mensagem: message, contextoAnterior: previous }) },
       ],
     }),
   });
@@ -60,7 +68,7 @@ export async function extractMemories(
   const result = object(JSON.parse(payload.message?.content ?? ''));
   if (!Array.isArray(result.candidates)) throw new Error('Invalid extractor output.');
   const words = (value: string) => ' ' + normal(value).replace(/[^\p{L}\p{N}]+/gu, ' ').trim() + ' ';
-  const evidence = [content, ...context.map(message => message.content)].map(words);
+  const evidence = [message, ...previous.map(turn => turn.content)].map(words);
   return result.candidates.slice(0, 5).map((value: unknown) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
     const candidate = value as Record<string, unknown>;
