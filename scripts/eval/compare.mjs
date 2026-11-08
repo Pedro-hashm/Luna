@@ -77,7 +77,7 @@ function build(commit) {
     mkdirSync(source);
     exec('git', ['archive', '--format=tar', '--output=' + archive, commit]);
     exec('tar', ['-xf', archive, '-C', source]);
-    exec('docker', ['build', '-f', 'apps/api/Dockerfile', '--target', 'migrate', '-t', image, '.'], {
+    exec('docker', ['buildx', 'build', '--load', '-f', 'apps/api/Dockerfile', '--target', 'migrate', '-t', image, '.'], {
       cwd: source, stdio: 'inherit',
     });
     return image;
