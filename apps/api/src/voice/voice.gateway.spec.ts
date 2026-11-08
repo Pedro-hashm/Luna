@@ -25,7 +25,7 @@ describe('VoiceGateway wake idle', () => {
     const client = {
       socket: { readyState: WebSocket.OPEN, send: jest.fn() }, sessionId: 'session-1', conversationId: 'conversation-1', mode: 'wake', state: 'idle',
       audio: [], audioBytes: 0, audioStarted: false, wakeBuffer: [], wakeBytes: 0, wakePreRoll: [], wakeBusy: false,
-      lastWakeRejectAt: 0, wakeThreshold: 0.5, wakeKeyword: 'Luna', lastWakeFrameAt: 0, wakeGeneration: 0, generation: 0,
+      lastWakeRejectAt: 0, wakeThreshold: 0.5, wakeKeyword: 'Luna', wakeVerifier: { enabled: false, model: null, threshold: 0.5 }, lastWakeFrameAt: 0, wakeGeneration: 0, generation: 0,
     };
     const audioFrame = gateway['audioFrame'].bind(gateway);
     await audioFrame(client as never, Buffer.alloc(10_240));
@@ -45,7 +45,7 @@ describe('VoiceGateway wake idle', () => {
     const client = {
       socket: { readyState: WebSocket.OPEN, send: jest.fn() }, sessionId: 'session-1', conversationId: 'conversation-1', mode: 'wake', state: 'idle',
       audio: [], audioBytes: 0, audioStarted: false, wakeBuffer: [], wakeBytes: 0, wakePreRoll: [], wakeBusy: false,
-      lastWakeRejectAt: 0, wakeThreshold: 0.5, wakeKeyword: 'Luna', lastWakeFrameAt: 0, wakeGeneration: 0, generation: 0,
+      lastWakeRejectAt: 0, wakeThreshold: 0.5, wakeKeyword: 'Luna', wakeVerifier: { enabled: false, model: null, threshold: 0.5 }, lastWakeFrameAt: 0, wakeGeneration: 0, generation: 0,
     };
     await gateway['audioFrame'](client as never, Buffer.alloc(10_240, 7));
     expect(client.state).toBe('listening');
