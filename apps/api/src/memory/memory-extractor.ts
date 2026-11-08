@@ -12,6 +12,7 @@ const extractPrompt = [
   'Use operation "add" por padrão. Use "change" para uma mudança declarada de um fato anterior e "correct" só para uma correção explícita. Hesitação como "acho que" e "na verdade eu gosto" não indica correção. validFrom é null se não houver data.',
   'Exemplos de predicate e value: "No tempo livre eu gosto de jogar videogame" tem predicate "hobby" e value "jogar videogame". "Prefiro curtir a história" tem predicate "preferência em jogos" e value "curtir a história". "Um dos meus favoritos é Subnautica" tem predicate "jogo favorito: Subnautica" e value "Subnautica".',
   'Em relatedEntity, copie o nome específico da personagem, pessoa ou obra à qual a preferência da mensagem atual se refere. Resolva pronomes pelas falas anteriores. Use null quando não houver referente identificado.',
+  'Para "No jogo Aurora gostei do romance e escolhi Nilo", retorne um candidato com predicate "romance em Aurora", value "gostei do romance e escolhi Nilo" e quote "No jogo Aurora gostei do romance e escolhi Nilo". Não salve só "romance" se o usuário disse quem escolheu.',
   'Exemplo de referência: contexto anterior "O que você gosta na personagem Ada?" e mensagem atual "Eu gosto que ela é curiosa e independente." → {"candidates":[{"subject":"Usuário","predicate":"traços que admira em Ada","relatedEntity":"Ada","scope":"global","kind":"preference","value":"curiosa e independente","quote":"Eu gosto que ela é curiosa e independente.","validFrom":null,"operation":"add"}]}.',
 ].join('\n');
 
@@ -63,15 +64,17 @@ export async function extractMemories(
   return result.candidates.slice(0, 5).map((value: unknown) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
     const candidate = value as Record<string, unknown>;
-    const { kind, predicate, relatedEntity } = candidate;
+    const { kind, predicate, relatedEntity, quote, value: detail } = candidate;
     if (kind !== 'preference' || typeof predicate !== 'string' || typeof relatedEntity !== 'string') return candidate;
     const name = relatedEntity.trim();
-    if (!name || predicate.length + name.length + 2 > 80) return candidate;
     const nameWords = words(name);
-    if (nameWords.trim() && !words(predicate).includes(nameWords) && evidence.some(line => line.includes(nameWords))) {
-      return { ...candidate, predicate: predicate + ': ' + name };
-    }
-    return candidate;
+    if (!nameWords.trim() || !evidence.some(line => line.includes(nameWords))) return candidate;
+    const label = !words(predicate).includes(nameWords) && predicate.length + name.length + 2 <= 80
+      ? predicate + ': ' + name : predicate;
+    // Keep the named choice when the literal evidence contains more than the short value.
+    const complete = typeof quote === 'string' && quote.length <= 180 &&
+      words(quote).includes(nameWords) && evidence[0].includes(words(quote)) &&
+      typeof detail === 'string' && !words(detail).includes(nameWords);
+    return { ...candidate, predicate: label, value: complete ? quote : detail };
   });
 }
-

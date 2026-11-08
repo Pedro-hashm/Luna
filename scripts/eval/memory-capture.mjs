@@ -106,7 +106,7 @@ try {
   report.items = dashboard.items.map(({ predicate, kind, revisions }) => ({ predicate, kind, value: revisions[0].value }));
   await recall('recupera o PC', 'Quais são as especificações do meu PC? Cite processador, placa de vídeo e RAM.', /Ryzen 5 5600[\s\S]*RTX 3060[\s\S]*16 GB/iu, [ids.get('hardware')]);
   await recall('recupera jogo favorito', 'Qual é um dos meus jogos favoritos? Responda só com o nome.', /Mass Effect/iu, [ids.get('jogo favorito')]);
-  await recall('recupera preferência sutil', 'O que eu disse que gostava na Liara? Responda com os traços que eu citei.', /inteligente[\s\S]*forte[\s\S]*independente/iu, [ids.get('traços na personagem')]);
+  await recall('recupera preferência sutil', 'Quais características eu mais admiro na Liara? Responda só com os traços.', /inteligente[\s\S]*forte[\s\S]*independente/iu, [ids.get('traços na personagem')]);
 } finally {
   await writeFile(join(out, 'memory-capture-report.json'), JSON.stringify(report, null, 2));
   for (const [name, passed] of Object.entries(report.cases)) console.log((passed ? 'PASS ' : 'FAIL ') + name);
