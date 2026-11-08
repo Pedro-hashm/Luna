@@ -28,7 +28,7 @@ export class VoiceController {
       response.setHeader('content-type', result.mimeType);
       response.setHeader('cache-control', 'no-store');
       if (result.next !== null) response.setHeader('x-luna-speech-next', result.next);
-      response.send(result.audio);
+      response.status(200).send(result.audio);
     } catch (error) {
       if (!abort.signal.aborted) throw error;
     } finally {
