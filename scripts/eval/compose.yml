@@ -1,0 +1,61 @@
+x-api: &api
+  image: ${LUNA_EVAL_IMAGE:?API image is required}
+  environment:
+    DATABASE_URL: postgresql://eval:eval@postgres:5432/eval
+    PORT: "8000"
+    OMNIROUTE_BASE_URL: ${LUNA_EVAL_ROUTER:?Router URL is required}
+    LLM_COMBO: ${LUNA_EVAL_MODEL:?Model is required}
+    ORCHESTRATOR_COMBO: ${LUNA_EVAL_ORCHESTRATOR:?Orchestrator model is required}
+    OLLAMA_BASE_URL: ${LUNA_EVAL_OLLAMA:-http://127.0.0.1:1}
+    RETRIEVAL_RERANKER_URL: ${LUNA_EVAL_RERANKER:-http://127.0.0.1:1}
+    SEARXNG_BASE_URL: ${LUNA_EVAL_SEARCH:-http://127.0.0.1:1}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: eval
+      POSTGRES_PASSWORD: eval
+      POSTGRES_DB: eval
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "eval", "-d", "eval"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *api
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *api
+    command: ["node", "dist/src/main.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1::8000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  fixture:
+    profiles: [fixture]
+    image: node:22-bookworm-slim
+    command: ["node", "/fixture.mjs"]
+    volumes:
+      - ./fixture.mjs:/fixture.mjs:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  database:

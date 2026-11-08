@@ -98,3 +98,6 @@ tools/kokoro-voice-training/output/
 tools/qwen-voice-cloning/.venv/
 tools/qwen-voice-cloning/output/
 tools/qwen-voice-cloning/data/
+
+# Local evaluation traces and logs
+.luna-eval/
