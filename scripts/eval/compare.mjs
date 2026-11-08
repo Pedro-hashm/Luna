@@ -86,10 +86,10 @@ function build(commit) {
   }
 }
 
-async function json(url, body) {
+async function json(url, body, method = 'POST') {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(180_000),
-    ...(body && { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    ...(body && { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   });
   if (!response.ok) throw new Error(new URL(url).pathname + ' returned HTTP ' + response.status);
   return response.json();
@@ -134,9 +134,8 @@ async function executeCase(test, repeat, url, compose) {
         throw new Error('Response could not be correlated to its trace');
       }
       const traces = inspector.responses.filter(trace => idOf(trace) === requestId);
-      const researchRuns = await json(url + '/research/conversations/' + conversationId + '/runs');
-      const research = await Promise.all(researchRuns.filter(item => item.requestId === requestId)
-        .map(item => json(url + '/research/runs/' + item.id)));
+      const { runs } = await json(url + '/research/conversations/' + conversationId + '/runs');
+      const research = runs.filter(item => item.requestId === requestId);
       const failures = assertions(turn, answer.content, traces);
       result.turns.push({
         input: turn.input, answer: answer.content, conversationId, requestId,
@@ -174,8 +173,17 @@ async function evaluate(label, image) {
     compose(['up', '-d', '--wait', '--wait-timeout', '180', 'api'], { stdio: 'inherit' });
     const address = compose(['port', 'api', '8000']).trim();
     if (!/^127\.0\.0\.1:\d+$/.test(address)) throw new Error('Unexpected API binding');
+    const url = 'http://' + address;
+    await json(url + '/settings');
+    const { application } = await json(url + '/settings', {
+      application: { llmCombo: env.LUNA_EVAL_MODEL, orchestratorCombo: env.LUNA_EVAL_ORCHESTRATOR },
+    }, 'PATCH');
+    if (application.llmCombo !== env.LUNA_EVAL_MODEL ||
+        application.orchestratorCombo !== env.LUNA_EVAL_ORCHESTRATOR) {
+      throw new Error('The evaluation model settings were not applied');
+    }
     for (let repeat = 1; repeat <= repetitions; repeat++) {
-      for (const test of cases) results.push(await executeCase(test, repeat, 'http://' + address, compose));
+      for (const test of cases) results.push(await executeCase(test, repeat, url, compose));
     }
   } finally {
     try {
