@@ -2,7 +2,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
 import { rankFixedMemory, selectMemoryContext } from './memory-context';
 import { declaredNames, nameRelationMatches, requestedName } from './declared-name';
-import { day, isChatOnlyMemoryRequest, isExplicitMemorySave, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, type MemoryHit } from './memory.types';
+import { allowsAutomaticMemory, day, isChatOnlyMemoryRequest, isExplicitMemorySave, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, type MemoryHit } from './memory.types';
 
 describe('personal memory boundaries', () => {
   it('extracts literal given and full names as separate review candidates', () => {
@@ -47,6 +47,12 @@ describe('personal memory boundaries', () => {
     expect(isChatOnlyMemoryRequest(message)).toBe(true);
     expect(isExplicitMemorySave(message)).toBe(false);
     expect(isExplicitMemorySave('Lembre que meu editor padrão é Boreal Desk.')).toBe(true);
+  });
+
+  it('allows lasting gaming preferences without turning roleplay into profile facts', () => {
+    expect(allowsAutomaticMemory('Um dos meus jogos favoritos é Subnautica.')).toBe(true);
+    expect(allowsAutomaticMemory('No meu jogo fictício eu interpreto uma personagem que dirige um Porsche.')).toBe(false);
+    expect(allowsAutomaticMemory('Hoje eu quero testar um editor por uma hora.')).toBe(false);
   });
 
   it('forgets a uniquely named memory from the original request and refuses ambiguous targets', async () => {

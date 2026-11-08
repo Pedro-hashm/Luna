@@ -327,10 +327,13 @@ export class MemoryService {
   }
 
   async search(query: string, date: string, scope: string): Promise<MemoryResult> {
-    const name = /^(nome|nome completo|nome preferido)$/u.test(normal(query)) ? normal(query) : undefined;
-    const words = [...new Set(normal(query).split(/[^\p{L}\p{N}]+/u)
-      .filter(word => word.length > 2 && !/^(qual|onde|como|atual|usuario|sobre|memoria|voce|meu|minha|moro|estou|falei|que)$/u.test(word)))].slice(0, 10);
-    if (/\b(cidade|residencia|moro|morava|moradia|morar)\b/u.test(normal(query))) words.push('residencia', 'cidade');
+    const terms = normal(query);
+    const name = /^(nome|nome completo|nome preferido)$/u.test(terms) ? terms : undefined;
+    const words = [...new Set(terms.split(/[^\p{L}\p{N}]+/u)
+      .filter(word => word.length > 2 && !/^(qual|onde|como|atual|usuario|sobre|memoria|voce|meu|minha|moro|estou|falei|que)$/u.test(word))
+      .map(word => word.length >= 5 ? word.replace(/([aeiou])s$/u, '$1') : word))].slice(0, 10);
+    if (/\b(cidade|residencia|moro|morava|moradia|morar)\b/u.test(terms)) words.push('residencia', 'cidade');
+    if (/\b(pc|computador|hardware)\b/u.test(terms)) words.push('computador', 'hardware', 'pc');
     return { memory: 'search', items: words.length ? await this.hits(date, scope, words, name) : [] };
   }
 
