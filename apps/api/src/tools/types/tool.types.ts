@@ -6,9 +6,11 @@ import type { ConversationContextResult } from '../../evidence/evidence.types';
 import type { ConversationEvidenceReference, ConversationRetrievalDiagnostics } from '../conversation-retrieval/types/conversation-retrieval.types';
 import type { ResearchResult } from '../../research/dto/research-result.dto';
 
-export const TOOL_NAMES = ['conversation_retrieval', 'conversation_context', 'web_research'] as const;
+import type { MemoryResult } from '../../memory/memory.types';
+
+export const TOOL_NAMES = ['conversation_retrieval', 'conversation_context', 'web_research', 'memory_search', 'memory_save', 'memory_forget'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
-export type ToolExecutionResult = ConversationRetrievalResult | ConversationContextResult | ResearchResult;
+export type ToolExecutionResult = ConversationRetrievalResult | ConversationContextResult | ResearchResult | MemoryResult;
 
 export type ToolContextMessage = {
   id?: string;

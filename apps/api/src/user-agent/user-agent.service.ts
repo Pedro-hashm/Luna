@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { MemoryService } from '../memory/memory.service';
 import { LunaService } from '../luna/luna.service';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import type {
@@ -12,11 +13,17 @@ export class UserAgentService {
   constructor(
     private readonly orchestratorService: OrchestratorService,
     private readonly lunaService: LunaService,
+    @Optional() private readonly memory?: MemoryService,
   ) {}
 
   async run(initial: UserAgentInitialState): Promise<UserAgentRunResult> {
     const startedAt = Date.now();
     const state = this.createState(initial);
+    if (this.memory) {
+      const settings = await this.memory.settings();
+      state.runtime.memoryEnabled = settings.enabled;
+      if (settings.enabled) state.memory.items = await this.memory.pinned(initial.currentDateTime.slice(0, 10));
+    }
     const orchestratorStartedAt = Date.now();
     const orchestrator = await this.orchestratorService.execute({
       requestId: state.requestId,

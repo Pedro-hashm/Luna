@@ -10,11 +10,12 @@ import { ConversationContextTool } from './conversation-context/conversation-con
 import { ConversationRetrievalModule } from './conversation-retrieval/conversation-retrieval.module';
 import { ResearchModule } from '../research/research.module';
 import { WebResearchRegisteredTool } from './web-research/web-research.tool';
+import { MemoryTools } from './memory-tools.service';
 
 @Module({
   imports: [ConversationRetrievalModule, EvidenceModule, SettingsModule, ResearchModule],
   controllers: [ToolsController],
-  providers: [ToolsService, ToolRegistryService, ConversationRetrievalTool, ConversationContextService, ConversationContextTool, WebResearchRegisteredTool],
+  providers: [ToolsService, ToolRegistryService, ConversationRetrievalTool, ConversationContextService, ConversationContextTool, WebResearchRegisteredTool, MemoryTools],
   exports: [ToolsService, ToolRegistryService],
 })
 export class ToolsModule {}

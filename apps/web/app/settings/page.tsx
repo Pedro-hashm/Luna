@@ -832,6 +832,14 @@ export default function SettingsPage() {
           </Link>
         </header>
 
+        <Link href="/settings/memory" className="glass mb-4 flex items-center gap-4 rounded-[1.7rem] p-5 transition hover:border-indigo-200 sm:px-7">
+          <div>
+            <h2 className="font-semibold text-slate-950">Memórias da Luna</h2>
+            <p className="mt-0.5 text-sm text-slate-600">Revise seu perfil, as sugestões e o mapa de relações.</p>
+          </div>
+          <span className="ml-auto shrink-0 text-sm font-semibold text-indigo-700">Abrir →</span>
+        </Link>
+
         <Link href="/settings/personality" className="glass mb-6 flex items-center gap-4 rounded-[1.7rem] p-5 transition hover:border-indigo-200 sm:px-7">
           <Sparkles className="size-5 shrink-0 text-indigo-600" />
           <div>
