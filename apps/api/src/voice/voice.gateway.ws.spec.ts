@@ -17,7 +17,7 @@ async function waitUntil(check: () => boolean, label: string): Promise<void> {
   }
 }
 
-async function harness(mode: 'live' | 'wake' = 'live') {
+async function harness(mode: 'live' | 'wake' = 'live', verifierThreshold?: number) {
   const events: Array<{ type: string; data?: unknown }> = [];
   const voice = {
     getSession: jest.fn().mockResolvedValue({ id: SESSION_ID, conversationId: CONVERSATION_ID, mode, endedAt: null }),
@@ -30,8 +30,8 @@ async function harness(mode: 'live' | 'wake' = 'live') {
   };
   const settings = { getApplicationSettings: jest.fn().mockResolvedValue({
     voiceEnabled: true, wakeEnabled: true,
-    wakeThreshold: 0.5, wakeKeyword: 'Luna', wakeVerifierEnabled: false, wakeVerifierModel: null,
-    wakeVerifierThreshold: 0.5, voiceBargeInEnabled: true, voiceProfileId: 'pf_dora', voiceSpeed: 1,
+    wakeThreshold: 0.5, wakeKeyword: 'Luna', wakeVerifierEnabled: verifierThreshold !== undefined, wakeVerifierModel: null,
+    wakeVerifierThreshold: verifierThreshold ?? 0.5, voiceBargeInEnabled: true, voiceProfileId: 'pf_dora', voiceSpeed: 1,
   }) };
   const conversations = { addMessageToConversation: jest.fn().mockImplementation(async (id: string, transcript: string) => ({
     conversationId: id,
@@ -79,13 +79,15 @@ describe('Voice WebSocket pipeline', () => {
   });
 
   it.each([
-    { label: 'the wake word is in the full transcript', raw: 'Luna, primeira pergunta', prefix: undefined, expected: 'primeira pergunta' },
+    { label: 'the wake word is in the full transcript', raw: 'Luna, primeira pergunta', expected: 'primeira pergunta' },
     { label: 'only the activation clip confirms the wake word', raw: 'primeira pergunta', prefix: 'Luna.', expected: 'primeira pergunta' },
-    { label: 'neither transcription confirms the wake word', raw: 'primeira pergunta', prefix: 'Uma aluna.', expected: '' },
-    { label: 'there is only a wake word', raw: 'Luna.', prefix: undefined, expected: '' },
-    { label: 'the full transcript is empty', raw: '', prefix: undefined, expected: '' },
-  ])('publishes the correct Wake transcript when $label', async ({ raw, prefix, expected }) => {
-    const test = await harness('wake');
+    { label: 'neither transcription confirms the wake word', raw: 'primeira pergunta', prefix: 'Uma aluna.', expected: '', outcome: 'wake_unconfirmed' },
+    { label: 'the acoustic verifier confirms activation', raw: 'primeira pergunta', verifierThreshold: 0.5, verified: true, expected: 'primeira pergunta' },
+    { label: 'the score is below the verifier trigger', raw: 'primeira pergunta', verifierThreshold: 0.95, prefix: 'Uma aluna.', expected: '', outcome: 'wake_unconfirmed' },
+    { label: 'there is only a verified wake word', raw: 'Luna.', verifierThreshold: 0.5, verified: true, expected: '', outcome: 'wake_only' },
+    { label: 'the verified full transcript is empty', raw: '', verifierThreshold: 0.5, verified: true, expected: '', outcome: 'empty' },
+  ])('publishes the correct Wake transcript when $label', async ({ raw, prefix, verifierThreshold, verified = false, expected, outcome = 'accepted' }) => {
+    const test = await harness('wake', verifierThreshold);
     try {
       test.wake.detect.mockResolvedValueOnce({ detected: true, score: 0.9, model: 'luna', timestamp: Date.now() });
       test.stt.transcribe.mockResolvedValueOnce(raw).mockResolvedValue(prefix);
@@ -99,6 +101,8 @@ describe('Voice WebSocket pipeline', () => {
 
       await waitUntil(() => test.messages.some((message) => message.type === 'transcript'), 'wake transcript');
       expect(test.messages.find((message) => message.type === 'transcript')?.text).toBe(expected);
+      expect(test.events.find((event) => event.type === 'voice.wake.detected')?.data).toMatchObject({ verified });
+      expect(test.events.find((event) => event.type === 'voice.stt.completed')?.data).toMatchObject({ transcript: expected, outcome });
       expect(test.stt.transcribe).toHaveBeenNthCalledWith(1, pcm);
       expect(test.stt.transcribe).toHaveBeenCalledTimes(prefix === undefined ? 1 : 2);
       if (prefix !== undefined) {
