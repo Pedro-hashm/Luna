@@ -121,6 +121,30 @@ test('a pause after the cue preserves the capture window and only shares own con
   assert.deepEqual(events.filter(event => event.command).map(event => event.context.userId), ['alice', 'bob']);
 });
 
+test('a persistent wake-word listener handles two complete turns from the same speaker', async () => {
+  const { events, room, advance } = setup();
+  room.add('alice', { requestContext: { guildId: '42', username: 'Alice' } });
+  const completeTurn = async () => {
+    room.receive('alice', frame(5_000));
+    await next();
+    assert.equal(room.turn?.phase, 'capture');
+    for (let i = 0; i < 3; i++) {
+      advance(80);
+      room.receive('alice', frame(5_000));
+    }
+    advance(950);
+    room.tick();
+    await next();
+  };
+  await completeTurn();
+  assert.equal(room.turn, undefined);
+  await completeTurn();
+  assert.equal(room.turn, undefined);
+  assert.equal(room.has('alice'), true);
+  assert.equal(events.filter(event => event === 'reply').length, 2);
+  assert.equal(events.filter(event => event.command).length, 2);
+});
+
 test('chat wake plays the cue before capturing one turn and removes its temporary listener', async () => {
   const { events, room, advance } = setup();
   room.onTemporaryEnd = userId => events.push({ temporaryEnd: userId });

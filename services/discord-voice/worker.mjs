@@ -28,7 +28,7 @@ const commands = new SlashCommandBuilder()
   .addSubcommand(command => command.setName('parar').setDescription('Encerra sua participação e apaga seu contexto da call'))
   .addSubcommand(command => command.setName('sair').setDescription('Desconecta a Luna do canal de voz'));
 
-const log = event => console.info('[discord-voice] ' + event);
+const log = (event, details) => console.info('[discord-voice] ' + event + (details ? ' ' + JSON.stringify(details) : ''));
 const botPermissions = [
   PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak,
 ];

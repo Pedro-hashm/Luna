@@ -281,19 +281,27 @@ export class VoiceRoom {
     try {
       const pcm = Buffer.concat(turn.buffers);
       turn.buffers = [];
+      this.log('turn_capture_completed', { bytes: pcm.length, voicedMs: Math.round(turn.voicedMs) });
       const transcript = await this.providers.transcribe(pcm, signal);
+      this.log('turn_transcription_completed', { characters: typeof transcript === 'string' ? transcript.length : 0 });
       let command = turn.requireWakeWord ? withoutWakeWord(transcript) : transcript.trim();
       if (turn.requireWakeWord && command === undefined && transcript && turn.voicedMs >= 180 && turn.prefixBytes < pcm.length) {
         const wakeOnly = await this.providers.transcribe(pcm.subarray(0, turn.prefixBytes), signal);
+        this.log('turn_wake_prefix_checked', { characters: typeof wakeOnly === 'string' ? wakeOnly.length : 0 });
         if (withoutWakeWord(wakeOnly) !== undefined) command = transcript;
       }
-      if (!command || signal.aborted) return;
+      if (!command || signal.aborted) {
+        if (!signal.aborted) this.log('turn_skipped', { reason: transcript?.trim() ? 'wake_only' : 'empty_transcript' });
+        return;
+      }
+      this.log('turn_request_started', { inputCharacters: command.length });
       const audio = await this.providers.answer(command, {
         ...turn.speaker.requestContext,
         userId: turn.speaker.userId,
         voiceSessionId: turn.speaker.sessionId,
       }, signal);
       if (signal.aborted) return;
+      this.log('turn_audio_ready', { bytes: audio.length });
       await turn.cue;
       if (signal.aborted) return;
       await this.playReply(audio, signal);
