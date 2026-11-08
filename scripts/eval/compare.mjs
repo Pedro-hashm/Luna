@@ -154,6 +154,7 @@ async function evaluate(label, image) {
   const env = {
     ...process.env,
     COMPOSE_DISABLE_ENV_FILE: '1',
+    COMPOSE_PROFILES: fixture ? 'fixture' : '',
     LUNA_EVAL_IMAGE: image,
     LUNA_EVAL_ROUTER: fixture ? 'http://fixture:8080/v1' : router,
     LUNA_EVAL_MODEL: fixture ? 'eval-luna' : model,
