@@ -23,6 +23,18 @@ export class MemoryService {
     return this.prisma.memorySettings.findUniqueOrThrow({ where: { id: 1 } });
   }
 
+  async reviewStatus(sourceId: string) {
+    const source = await this.prisma.message.findUnique({
+      where: { id: sourceId },
+      select: { memoryJob: { select: { done: true, attempts: true } }, memorySuggestions: { take: 1, select: { id: true } } },
+    });
+    if (source?.memorySuggestions.length) return 'review' as const;
+    const job = source?.memoryJob;
+    if (!job) return undefined;
+    if (job.done) return 'processed' as const;
+    return job.attempts < 3 ? 'queued' as const : 'failed' as const;
+  }
+
   async configure(body: unknown) {
     const input = object(body);
     const data = Object.fromEntries(['enabled', 'suggestionsEnabled', 'allowExplicitUse']

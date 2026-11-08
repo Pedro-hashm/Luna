@@ -59,11 +59,19 @@ export function normal(value: string): string {
 }
 
 export function isChatOnlyMemoryRequest(content: string) {
-  return REMEMBER.test(content) && CHAT_SCOPE.test(normal(content));
+  return REMEMBER.test(content) && hasChatScope(content);
 }
 
 export function isExplicitMemorySave(content: string) {
-  return REMEMBER.test(content) && !CHAT_SCOPE.test(normal(content));
+  return REMEMBER.test(content) && !hasChatScope(content);
+}
+
+export function hasChatScope(content: string) {
+  return CHAT_SCOPE.test(normal(content));
+}
+
+export function asksAboutMemory(content: string) {
+  return /\b(?:memorias?|lembr\p{L}*|guard\p{L}*|esquec\p{L}*|salv\p{L}*)\b/u.test(normal(content));
 }
 
 export function hash(value: string) {

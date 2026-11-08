@@ -5,6 +5,24 @@ import { CURRENT_PERSONALITY } from './personality.service';
 const defaultPersonality = { resolveActive: async () => CURRENT_PERSONALITY } as never;
 
 describe('LunaService', () => {
+  it('distinguishes the actual review state from cross-chat memory capability', async () => {
+    const chat = jest.fn().mockResolvedValue({ content: 'Resposta.', model: 'test-model' });
+    const service = new LunaService({ chat } as never, {
+      getApplicationSettings: async () => ({ llmCombo: 'paid-general' }),
+    } as never, defaultPersonality);
+    const input = {
+      context: { currentDateTime: '2026-11-08T10:00:00-03:00', recentMessages: [
+        { role: 'user', content: 'Você não devia lembrar disso?' },
+      ], runtime: { memoryEnabled: true, memorySuggestionsEnabled: true, memoryAllowExplicitUse: true, previousMemoryReview: 'review' } },
+      finalInstructions: '', toolExecutions: [],
+    } as unknown as LunaGenerateInput;
+    await service.generate(input);
+    const content = chat.mock.calls[0][0].messages.map(message => message.content).join('\n');
+    expect(content).toContain('memória pessoal entre conversas');
+    expect(content).toContain('aguardando aprovação');
+    expect(content).toContain('Só confirme uma operação com resultado bem-sucedido');
+  });
+
   it('applies configurable concise guidance only to voice output', async () => {
     const chat = jest.fn().mockResolvedValue({ content: 'Canberra.', model: 'test-model' });
     const service = new LunaService({ chat } as never, {

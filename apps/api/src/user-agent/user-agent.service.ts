@@ -1,5 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { MemoryService } from '../memory/memory.service';
+import { asksAboutMemory } from '../memory/memory.types';
 import { LunaService } from '../luna/luna.service';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import type {
@@ -36,8 +37,16 @@ export class UserAgentService {
       runtime: state.runtime,
     });
     const orchestratorMs = Date.now() - orchestratorStartedAt;
-    if (this.memory && state.runtime.memoryEnabled) {
-      state.memory = await this.memory.fixed(initial.currentDateTime.slice(0, 10), await this.memory.settings());
+    if (this.memory) {
+      const settings = await this.memory.settings();
+      state.runtime.memoryEnabled = settings.enabled;
+      state.runtime.memorySuggestionsEnabled = settings.enabled && settings.suggestionsEnabled;
+      state.runtime.memoryAllowExplicitUse = settings.allowExplicitUse;
+      if (settings.enabled && settings.suggestionsEnabled && asksAboutMemory(initial.input)) {
+        const previous = state.recentMessages.findLast(message => message.role === 'user' && message.id !== initial.currentMessageId);
+        if (previous) state.runtime.previousMemoryReview = await this.memory.reviewStatus(previous.id);
+      }
+      state.memory = await this.memory.fixed(initial.currentDateTime.slice(0, 10), settings);
       orchestrator.context.memory = state.memory;
     }
     const lunaStartedAt = Date.now();
