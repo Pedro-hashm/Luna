@@ -70,6 +70,15 @@ export function hasChatScope(content: string) {
   return CHAT_SCOPE.test(normal(content));
 }
 
+export function allowsAutomaticMemory(content: string) {
+  const text = normal(content);
+  return !hasChatScope(content) && !isExplicitMemorySave(content) && !FORGET.test(content) &&
+    !looksLikeSecret(content) &&
+    !/\b(?:cpf|rg|passaporte|senha|password|token de acesso|chave privada|cartao de credito|conta bancaria)\b/u.test(text) &&
+    !/^(?:finja|imagine|suponha|hipoteticamente|exemplo|hoje\s+(?:estou|preciso|quero|vou))\b/u.test(text) &&
+    !/\b(?:so hoje|so desta vez|por enquanto|so por agora)\b/u.test(text);
+}
+
 export function asksAboutMemory(content: string) {
   return /\b(?:memorias?|lembr\p{L}*|guard\p{L}*|esquec\p{L}*|salv\p{L}*)\b/u.test(normal(content));
 }

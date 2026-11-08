@@ -23,6 +23,13 @@ export class MemoryController {
   @Post('review')
   review() { return this.worker.run(true); }
 
+  @Get('conversations/:id/activity')
+  @Header('Cache-Control', 'no-store')
+  activity(@Param('id', ParseUUIDPipe) id: string) { return this.memory.activity(id); }
+
+  @Post('changes/:id/undo')
+  undo(@Param('id', ParseUUIDPipe) id: string) { return this.memory.undoChange(id); }
+
   @Post('items')
   create(@Body() input: unknown) { return this.memory.save(input); }
 

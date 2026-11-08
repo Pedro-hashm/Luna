@@ -1,23 +1,25 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatApplicationDate } from '../time/application-time';
 import {
-  bounded, day, flag, FORGET, hash, isExplicitMemorySave, looksLikeSecret, memoryKey, normal, object, readDraft,
+  allowsAutomaticMemory, bounded, day, flag, FORGET, hash, isExplicitMemorySave, looksLikeSecret, memoryKey, normal, object, readDraft,
   sourceFingerprint, type Draft, type MemoryHit, type MemoryResult,
 } from './memory.types';
 import {
   MAX_FIXED_MEMORY_TOKENS, MEMORY_RECALL_WINDOW_DAYS, rankFixedMemory, selectMemoryContext, type FixedMemory,
 } from './memory-context';
-import { nameRelationMatches } from './declared-name';
+import { declaredNames, nameRelationMatches } from './declared-name';
 
-type Source = { messageId: string; quote: string };
+type Source = { messageId: string; quote: string; notice?: boolean };
 type Controls = { allowModel?: boolean; pinned?: boolean; archived?: boolean };
 const latest = { orderBy: { number: 'desc' as const }, take: 1 };
 const includeCurrent = { revisions: latest };
 
 @Injectable()
 export class MemoryService {
+  private readonly logger = new Logger(MemoryService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   settings() {
@@ -27,8 +29,13 @@ export class MemoryService {
   async reviewStatus(sourceId: string) {
     const source = await this.prisma.message.findUnique({
       where: { id: sourceId },
-      select: { memoryJob: { select: { done: true, attempts: true } }, memorySuggestions: { take: 1, select: { id: true } } },
+      select: {
+        memoryJob: { select: { done: true, attempts: true } },
+        memorySuggestions: { take: 1, select: { id: true } },
+        memoryChanges: { where: { undoneAt: null, revisionId: { not: null } }, take: 1, select: { id: true } },
+      },
     });
+    if (source?.memoryChanges.length) return 'saved' as const;
     if (source?.memorySuggestions.length) return 'review' as const;
     const job = source?.memoryJob;
     if (!job) return undefined;
@@ -74,7 +81,7 @@ export class MemoryService {
         const item = byKey.get(itemKey);
         return {
           ...suggestion,
-          existing: item ? { id: item.id, version: item.version, value: item.revisions[0]?.value } : null,
+          existing: item ? { id: item.id, version: item.version, value: item.revisions[0]?.value, allowModel: item.allowModel } : null,
         };
       }),
       queue: { pending, failed },
@@ -127,7 +134,7 @@ export class MemoryService {
         throw new ConflictException('A memória mudou. Reabra o item antes de editar.');
       }
       if (!id && draft.operation !== 'add') throw new BadRequestException('Abra a memória existente antes de alterá-la.');
-      return this.apply(tx, draft, controls, null, item?.version ?? null);
+      return this.apply(tx, draft, item ? controls : { allowModel: true, ...controls }, null, item?.version ?? null);
     });
   }
 
@@ -152,7 +159,8 @@ export class MemoryService {
       if (expected !== null && (typeof expected !== 'number' || !Number.isSafeInteger(expected))) {
         throw new BadRequestException('Versão inválida.');
       }
-      const saved = await this.apply(tx, draft, this.controls(input), {
+      const controls = this.controls(input);
+      const saved = await this.apply(tx, draft, expected === null ? { allowModel: true, ...controls } : controls, {
         messageId: suggestion.messageId, quote: suggestion.quote,
       }, expected);
       await tx.memorySuggestion.delete({ where: { id } });
@@ -163,6 +171,65 @@ export class MemoryService {
   async dismiss(id: string) {
     await this.prisma.memorySuggestion.deleteMany({ where: { id } });
     return { dismissed: true };
+  }
+
+  async activity(conversationId: string) {
+    const [changes, pending] = await Promise.all([
+      this.prisma.memoryChange.findMany({
+        where: { message: { conversationId } }, orderBy: { createdAt: 'asc' },
+        include: { revision: { include: { item: true, sources: true } } },
+      }),
+      this.prisma.memoryJob.count({ where: { message: { conversationId }, done: false, attempts: { lt: 3 } } }),
+    ]);
+    return {
+      pending: pending > 0,
+      changes: changes.map(({ id, messageId, revision, previousRevision, undoneAt }) => ({
+        id, messageId,
+        status: undoneAt ? 'undone' : revision ? 'saved' : 'removed',
+        updated: previousRevision !== null,
+        memory: revision ? {
+          id: revision.item.id, predicate: revision.item.predicate, value: revision.value,
+          quote: revision.sources.find(source => source.messageId === messageId)?.quote,
+          allowModel: revision.item.allowModel,
+          canUndo: revision.item.version === revision.number && !revision.sources.some(source => source.messageId !== messageId),
+        } : null,
+      })),
+    };
+  }
+
+  async undoChange(id: string) {
+    return this.atomic(async tx => {
+      const change = await tx.memoryChange.findUnique({
+        where: { id }, include: { revision: { include: { item: true, sources: true } } },
+      });
+      if (!change) throw new NotFoundException('Gravação de memória não encontrada.');
+      if (change.undoneAt) return { undone: true };
+      const revision = change.revision;
+      if (!revision || revision.item.version !== revision.number ||
+        revision.sources.some(source => source.messageId !== change.messageId)) {
+        throw new ConflictException('A memória mudou desde esta gravação. Revise o item antes de alterá-lo.');
+      }
+      const source = revision.sources.find(row => row.messageId === change.messageId);
+      await tx.memorySuppression.createMany({
+        data: [revision.value, source?.quote].filter((value): value is string => Boolean(value))
+          .map(value => ({ key: sourceFingerprint(change.messageId, value) })),
+        skipDuplicates: true,
+      });
+      await tx.memoryChange.update({ where: { id }, data: { undoneAt: new Date(), revisionId: null } });
+      if (change.previousRevision === null) {
+        await tx.memoryItem.delete({ where: { id: revision.itemId } });
+      } else {
+        await tx.memoryRevision.update({
+          where: { itemId_number: { itemId: revision.itemId, number: change.previousRevision } },
+          data: { status: 'active', validTo: change.previousValidTo },
+        });
+        await tx.memoryRevision.delete({ where: { id: revision.id } });
+        await tx.memoryItem.update({
+          where: { id: revision.itemId }, data: { kind: change.previousKind ?? revision.item.kind, version: { increment: 1 } },
+        });
+      }
+      return { undone: true };
+    });
   }
 
   async forget(id: string, version: unknown) {
@@ -201,7 +268,7 @@ export class MemoryService {
     }
     const saved = await this.atomic(async (tx) => {
       const item = await tx.memoryItem.findUnique({ where: { key: memoryKey(draft) } });
-      return this.apply(tx, draft, item ? {} : { allowModel: settings.allowExplicitUse }, { messageId, quote }, item?.version ?? null);
+      return this.apply(tx, draft, item ? {} : { allowModel: settings.allowExplicitUse }, { messageId, quote, notice: true }, item?.version ?? null);
     });
     return { memory: 'save', items: [], outcome: saved.allowModel ? 'saved' : 'saved-private' };
   }
@@ -271,10 +338,12 @@ export class MemoryService {
     data: Prisma.MessageUncheckedCreateInput, sourceId: string, request: string,
     recalls: Array<Pick<MemoryHit, 'id' | 'revision'>> = [],
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const eligible = request.trim().length >= 12 && allowsAutomaticMemory(request);
+    const names = eligible ? declaredNames(request) : [];
+    const message = await this.prisma.$transaction(async (tx) => {
       const message = await tx.message.create({ data });
       const settings = await tx.memorySettings.findUnique({ where: { id: 1 } });
-      if (settings?.enabled && settings.suggestionsEnabled) {
+      if (settings?.enabled && settings.suggestionsEnabled && eligible) {
         await tx.memoryJob.upsert({
           where: { messageId: sourceId }, update: {},
           create: { messageId: sourceId, availableAt: new Date(Date.now() + 30_000) },
@@ -295,6 +364,68 @@ export class MemoryService {
       }
       return message;
     });
+    if (names.length) {
+      try {
+        await this.atomic(async tx => {
+          const settings = await tx.memorySettings.findUnique({ where: { id: 1 } });
+          if (!settings?.enabled || !settings.suggestionsEnabled) return;
+          const job = await tx.memoryJob.findFirst({
+            where: { messageId: sourceId, done: false, leaseToken: null },
+            include: { message: { select: { id: true, content: true, createdAt: true } } },
+          });
+          if (!job) return;
+          for (const { quote, ...draft } of names) {
+            await this.saveAutomatic(tx, draft, job.message, quote);
+          }
+          await tx.memoryJob.update({ where: { messageId: sourceId }, data: { done: true } });
+        });
+      } catch {
+        this.logger.warn('Direct memory write deferred to the analysis queue.');
+      }
+    }
+    return message;
+  }
+
+  async saveAutomatic(
+    tx: Prisma.TransactionClient, draft: Draft, source: { id: string; content: string; createdAt: Date }, quote: string,
+  ) {
+    const key = memoryKey(draft);
+    if (!allowsAutomaticMemory(source.content) || !source.content.includes(quote) ||
+      !normal(quote).includes(normal(draft.value)) || looksLikeSecret(quote)) return false;
+    if (draft.scope !== 'global' && !normal(quote).includes(normal(draft.scope))) return false;
+    if (draft.validFrom && draft.validFrom > formatApplicationDate(source.createdAt, await this.timeZone(tx))) return false;
+    if (await tx.memorySuppression.findFirst({ where: { key: { in: [
+      key, sourceFingerprint(source.id, draft.value), sourceFingerprint(source.id, quote),
+    ] } } })) return false;
+    if (await tx.memoryChange.findUnique({ where: { messageId_itemKey: { messageId: source.id, itemKey: key } } })) return false;
+
+    const item = await tx.memoryItem.findUnique({
+      where: { key }, include: { revisions: { ...latest, include: { sources: { include: { message: { select: { createdAt: true } } } } } } },
+    });
+    if (item?.archived) return false;
+    const current = item?.revisions[0];
+    const evidence = { messageId: source.id, quote, notice: true };
+    if (current) {
+      if (normal(current.value) === normal(draft.value) && (draft.operation !== 'correct' || current.validFrom === draft.validFrom)) {
+        await this.addSource(tx, current.id, evidence);
+        return false;
+      }
+      const latestSource = current.sources.reduce(
+        (last, row) => Math.max(last, row.message.createdAt.getTime()), 0,
+      ) || current.recordedAt.getTime();
+      const wording = normal(source.content);
+      const explicitUpdate = draft.operation === 'change'
+        ? /\b(?:mudei|passei a|agora|antes|mudou)\b/u.test(wording)
+        : draft.operation === 'correct' && /\b(?:corrigindo|correcao|estava errado|na verdade|nunca)\b/u.test(wording);
+      if (!explicitUpdate || source.createdAt.getTime() < latestSource ||
+        (draft.operation === 'change' && draft.validFrom && current.validFrom && draft.validFrom <= current.validFrom)) return false;
+    } else if (draft.operation !== 'add') {
+      return false;
+    }
+    await this.apply(tx, { ...draft, kind: (item?.kind ?? draft.kind) as Draft['kind'] },
+      item ? {} : { allowModel: true }, evidence, item?.version ?? null);
+    await tx.memorySuggestion.deleteMany({ where: { itemKey: key, messageId: source.id } });
+    return true;
   }
 
   private async hits(date: string, scope: string, words: string[], name?: string): Promise<MemoryHit[]> {
@@ -386,6 +517,10 @@ export class MemoryService {
       draft.validFrom && current.validFrom && draft.validFrom <= current.validFrom) {
       throw new ConflictException('A mudança precisa ocorrer depois do início anterior.');
     }
+    if (source?.notice && newRevision &&
+      await tx.memoryChange.findUnique({ where: { messageId_itemKey: { messageId: source.messageId, itemKey: key } } })) {
+      throw new ConflictException('Esta mensagem já foi usada para alterar esta memória.');
+    }
     if (current && !newRevision && !Object.keys(controls).length) {
       if (source) await this.addSource(tx, current.id, source);
       return item;
@@ -401,13 +536,23 @@ export class MemoryService {
       data: { itemId: saved.id, number: saved.version, value: draft.value, validFrom: draft.validFrom, status: 'active' },
     }) : current!;
     if (source) await this.addSource(tx, revision.id, source);
+    if (source?.notice && newRevision) {
+      await tx.memoryChange.createMany({
+        data: [{
+          messageId: source.messageId, itemKey: key, revisionId: revision.id, previousRevision: current?.number,
+          previousValidTo: current?.validTo, previousKind: item?.kind,
+        }],
+        skipDuplicates: true,
+      });
+    }
     return saved;
   }
 
   private async addSource(tx: Prisma.TransactionClient, revisionId: string, source: Source) {
+    const { messageId, quote } = source;
     await tx.memorySource.upsert({
-      where: { revisionId_messageId: { revisionId, messageId: source.messageId } },
-      update: {}, create: { revisionId, ...source },
+      where: { revisionId_messageId: { revisionId, messageId } },
+      update: {}, create: { revisionId, messageId, quote },
     });
   }
 }

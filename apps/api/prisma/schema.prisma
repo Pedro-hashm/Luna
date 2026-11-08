@@ -157,6 +157,7 @@ model Message {
   outputMode        String?             @map("output_mode")
   memorySources     MemorySource[]
   memorySuggestions MemorySuggestion[]
+  memoryChanges     MemoryChange[]
   memoryJob         MemoryJob?
 
   @@index([conversationId, createdAt])
@@ -167,7 +168,7 @@ model MemorySettings {
   id                 Int     @id @default(1)
   enabled            Boolean @default(true)
   suggestionsEnabled Boolean @default(false)
-  allowExplicitUse   Boolean @default(false)
+  allowExplicitUse   Boolean @default(true)
   fixedContextMaxTokens Int  @default(512)
 
   @@map("memory_settings")
@@ -203,9 +204,28 @@ model MemoryRevision {
   recordedAt DateTime      @default(now())
   sources    MemorySource[]
   recalls    MemoryRecall[]
+  changes    MemoryChange[]
 
   @@unique([itemId, number])
   @@map("memory_revisions")
+}
+
+model MemoryChange {
+  id               String          @id @default(uuid()) @db.Uuid
+  messageId        String          @db.Uuid
+  message          Message         @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  itemKey          String
+  revisionId       String?         @db.Uuid
+  revision         MemoryRevision? @relation(fields: [revisionId], references: [id], onDelete: SetNull)
+  previousRevision Int?
+  previousValidTo  String?
+  previousKind     String?
+  createdAt        DateTime        @default(now())
+  undoneAt         DateTime?
+
+  @@unique([messageId, itemKey])
+  @@index([revisionId])
+  @@map("memory_changes")
 }
 
 model MemoryRecall {

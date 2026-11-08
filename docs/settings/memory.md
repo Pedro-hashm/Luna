@@ -1,10 +1,12 @@
 # Memórias da Luna
 
-Em **Configurações → Memórias da Luna**, use Meu perfil para consultar e editar as memórias, Mapa para navegar por assunto e data, e Sugestões para aprovar ou rejeitar o que a Luna encontrou em mensagens novas.
+Em **Configurações → Memórias da Luna**, use Meu perfil para consultar e editar as memórias, Mapa para navegar por assunto e data, e Atividade para ver a fila de análise.
 
 ## Usar no chat
 
-Peça “Lembre que meu editor padrão é X” ou “Esqueça meu editor padrão”. A Luna confirma operações que o backend concluiu. Na configuração inicial, os pedidos de lembrar criam memórias privadas. Autorize o item em **Permitir uso no chat**, ou habilite a autorização padrão para novos pedidos explícitos. Conteúdo autorizado pode entrar no prompt do modelo configurado, inclusive um modelo externo. Itens privados aparecem no painel.
+Dizer “Meu editor padrão é X” pode gravar uma memória quando a gravação automática está ligada. Você também pode pedir “Lembre que…” ou “Esqueça…”. As memórias novas vêm autorizadas para uso no chat. Desmarque **Permitir uso no chat** no item para mantê-lo privado. Conteúdo autorizado pode entrar no prompt do modelo configurado, inclusive um modelo externo.
+
+O aviso na mensagem de origem aparece depois de gravar. **Ver** mostra o fato, o trecho de origem e o atalho para privacidade. **Desfazer** remove uma adição ou restaura a revisão anterior. Uma edição posterior precisa ser revisada antes de desfazer. A mensagem de origem permanece na conversa, e reprocessá-la respeita a reversão.
 
 O Orchestrator decide entre memória, contexto imediato e busca de conversas. A busca de memórias passa as afirmações à geração final, com identificação de item e revisão no inspetor. A consulta web não recebe os campos da memória a partir dessa busca. O texto já existente no chat tem seu próprio ciclo de retenção.
 
@@ -16,7 +18,7 @@ A geração usa o mesmo estimador do contexto imediato e conta o bloco serializa
 
 ## Aprender em segundo plano
 
-**Sugerir novas memórias** começa desativado. Quando ligado, a resposta salva e o job da mensagem do usuário entram na mesma transação. O worker analisa até oito mensagens por rodada, depois de um intervalo, usando o Ollama local direto. O modelo padrão é `qwen3:4b-instruct`; `LUNA_MEMORY_MODEL` permite escolher outro instalado. **Analisar agora** trabalha sobre a fila. Os chats anteriores à ativação ficam no histórico. Uma sugestão precisa de um trecho literal e de revisão humana antes de criar ou atualizar um fato.
+**Salvar memórias automaticamente** usa o controle de análise já existente. Apresentações diretas podem ser gravadas logo após a resposta persistir. Para outros fatos, a resposta e o job entram na mesma transação. O worker analisa até oito mensagens por rodada usando o Ollama local. O modelo padrão é `qwen3:4b-instruct`. **Analisar agora** adianta a fila. As gravações exigem um trecho literal. Uma alteração de fato existente exige evidência de mudança ou correção no texto. Sugestões antigas ficam disponíveis em Atividade.
 
 Confirmações literais do mesmo valor podem acrescentar uma fonte ao item existente. Uma **mudança real** fecha a versão anterior com a data informada, ou deixa o término sem data confirmada. Uma **correção** retrata a versão anterior. A linha do tempo mostra quando a Luna registrou e quando a afirmação valia. **Esquecer** remove o item, suas revisões e sugestões relacionadas, mantendo chaves resumidas para bloquear reaprendizado das mesmas fontes. A conversa original é independente.
 
@@ -24,4 +26,4 @@ Confirmações literais do mesmo valor podem acrescentar uma fonte ao item exist
 
 O Compose publica API e interface em loopback por padrão. Para disponibilizar dados pessoais pela rede, coloque um controle de acesso autenticado à frente da aplicação. Desligar **Memória no chat** pausa o uso e o processamento em segundo plano. A migration é aditiva; o código anterior pode rodar com as tabelas preservadas.
 
-Os casos sintéticos usam a stack isolada de avaliação. A rotina `scripts/eval/memory.mjs` precisa de uma API descartável, nome de projeto Compose `luna-eval-*` e diretório local de relatórios. Ela cobre gravação explícita, consulta em outro chat, controles de privacidade, revisões, aprovação, exclusão e repetição do processamento.
+Os casos sintéticos usam a stack isolada de avaliação. A rotina `scripts/eval/memory.mjs` precisa de uma API descartável, nome de projeto Compose `luna-eval-*` e diretório local de relatórios. Ela cobre gravação explícita e automática, consulta em outro chat, privacidade, revisões, exclusão e bloqueio de reprocessamento após desfazer.

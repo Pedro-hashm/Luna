@@ -2,7 +2,7 @@ import { ConflictException, Injectable, Logger, OnModuleDestroy, OnModuleInit } 
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
-import { bounded, hash, isChatOnlyMemoryRequest, looksLikeSecret, memoryKey, normal, object, readDraft, sourceFingerprint } from './memory.types';
+import { allowsAutomaticMemory, bounded, normal, object, readDraft } from './memory.types';
 import { declaredNames } from './declared-name';
 
 const BATCH = 8;
@@ -29,7 +29,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
   async run(manual: boolean) {
     if (this.running) {
       if (manual) throw new ConflictException('Já há uma análise em andamento.');
-      return { examined: 0, proposed: 0 };
+      return { examined: 0, saved: 0 };
     }
     this.running = true;
     try {
@@ -43,7 +43,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
     const settings = await this.memory.settings();
     if (!settings.enabled || !settings.suggestionsEnabled) {
       if (manual) throw new ConflictException('Ative a análise de mensagens novas primeiro.');
-      return { examined: 0, proposed: 0 };
+      return { examined: 0, saved: 0 };
     }
     const now = new Date();
     const leaseToken = randomUUID();
@@ -65,12 +65,12 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
         include: { message: { select: { id: true, role: true, content: true, createdAt: true } } },
       });
     });
-    if (!jobs.length) return { examined: 0, proposed: 0 };
+    if (!jobs.length) return { examined: 0, saved: 0 };
 
     try {
       const messages = jobs.filter(({ message }) =>
         message.role === 'user' && message.content.trim().length >= 12 &&
-        !looksLikeSecret(message.content) && !isChatOnlyMemoryRequest(message.content));
+        allowsAutomaticMemory(message.content));
       const introductions = messages.map(({ message }) => ({ message, names: declaredNames(message.content) }));
       const general = introductions.filter(({ names }) => !names.length).map(({ message }) => message);
       const extracted = general.length ? await this.extract(general.map(message => message.content.slice(0, 1800))) : [];
@@ -78,7 +78,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
         ...introductions.flatMap(({ message, names }) => names.map(candidate => ({ candidate, message }))),
         ...extracted.map(candidate => ({ candidate, message: undefined })),
       ];
-      const proposed = await this.prisma.$transaction(async (tx) => {
+      const saved = await this.prisma.$transaction(async (tx) => {
         const settings = await tx.memorySettings.findUniqueOrThrow({ where: { id: 1 } });
         if (!settings.enabled || !settings.suggestionsEnabled) {
           await tx.memoryJob.updateMany({ where: { leaseToken }, data: { leaseToken: null, leaseUntil: null, attempts: { decrement: 1 } } });
@@ -97,43 +97,19 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
             continue;
           }
           const source = message ?? (typeof raw.index === 'number' && Number.isInteger(raw.index) ? general[raw.index] : undefined);
-          if (!source || !source.content.includes(quote) || looksLikeSecret(quote)) continue;
-          // A valid citation can still arrive with a paraphrased value from a small model.
-          // Use the cited words as the candidate; human review can shorten them.
+          if (!source || !source.content.includes(quote)) continue;
+          // Prefer literal evidence when the extractor paraphrases a short declaration.
           if (!normal(quote).includes(normal(draft.value))) {
-            if (quote.length > 500) continue;
+            if (quote.length > 180 || draft.operation !== 'add') continue;
             draft = { ...draft, value: quote };
           }
-          if (draft.scope !== 'global' && !normal(quote).includes(normal(draft.scope))) continue;
-          if (draft.validFrom && draft.validFrom > source.createdAt.toISOString().slice(0, 10)) continue;
-          const key = memoryKey(draft);
-          if (await tx.memorySuppression.findFirst({ where: { key: { in: [
-            key, sourceFingerprint(source.id, draft.value), sourceFingerprint(source.id, quote),
-          ] } } })) continue;
           if (!await tx.memoryJob.findFirst({ where: { messageId: source.id, leaseToken } })) continue;
-          const item = await tx.memoryItem.findUnique({ where: { key }, include: { revisions: { orderBy: { number: 'desc' }, take: 1 } } });
-          const current = item?.revisions[0];
-          if (item?.archived) continue;
-          if (current && normal(current.value) === normal(draft.value) && draft.operation === 'add') {
-            await tx.memorySource.upsert({
-              where: { revisionId_messageId: { revisionId: current.id, messageId: source.id } },
-              update: {}, create: { revisionId: current.id, messageId: source.id, quote },
-            });
-            continue;
-          }
-          const prior = await tx.memorySuggestion.findFirst({ where: { itemKey: key, draft: { path: ['value'], equals: draft.value } } });
-          if (prior) continue;
-          const fingerprint = hash(JSON.stringify([source.id, key, normal(draft.value), draft.operation]));
-          await tx.memorySuggestion.upsert({
-            where: { fingerprint }, update: {},
-            create: { fingerprint, itemKey: key, expectedVersion: item?.version ?? null, draft, messageId: source.id, quote },
-          });
-          count++;
+          if (await this.memory.saveAutomatic(tx, draft, source, quote)) count++;
         }
         await tx.memoryJob.updateMany({ where: { leaseToken }, data: { done: true, leaseToken: null, leaseUntil: null } });
         return count;
       }, { isolationLevel: 'Serializable' });
-      return { examined: jobs.length, proposed };
+      return { examined: jobs.length, saved };
     } catch {
       await this.prisma.memoryJob.updateMany({
         where: { leaseToken },
@@ -141,7 +117,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
       });
       if (manual) throw new ConflictException('O modelo local de memória não concluiu a análise. A fila foi preservada.');
       this.logger.warn('Local memory extraction unavailable; pending jobs will be retried.');
-      return { examined: 0, proposed: 0 };
+      return { examined: 0, saved: 0 };
     }
   }
 
