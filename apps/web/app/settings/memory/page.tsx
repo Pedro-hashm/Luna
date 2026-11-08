@@ -10,6 +10,8 @@ import {
   type MemorySuggestion,
 } from "@/lib/memory-api";
 
+import { MemoryQueuePanel } from "./memory-queue";
+
 const button = "inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-white disabled:opacity-50";
 const primary = "inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-50";
 const field = "mt-1 w-full rounded-xl border border-indigo-100 bg-white/85 px-3 py-2.5 text-sm text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 read-only:bg-slate-50";
@@ -40,6 +42,7 @@ export default function MemoryPage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [queueRefresh, setQueueRefresh] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -99,6 +102,7 @@ export default function MemoryPage() {
 
   async function reload() {
     setData(await listMemories());
+    setQueueRefresh(version => version + 1);
     setMapItems(undefined);
     setMapDate("");
   }
@@ -245,13 +249,14 @@ export default function MemoryPage() {
                 </>}
                 {tab === "review" && <>
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div><h2 className="text-lg font-semibold text-slate-900">Atividade da memória</h2><p className="mt-1 text-sm text-slate-600">{data.queue.pending} mensagem(ns) na fila{data.queue.failed > 0 ? " · " + data.queue.failed + " falharam" : ""}</p></div>
+                    <h2 className="text-lg font-semibold text-slate-900">Atividade da memória</h2>
                     <button type="button" className={button} disabled={!data.settings.enabled || !data.settings.suggestionsEnabled}
                       onClick={() => void action("Analisando mensagens novas…", async () => {
                         const result = await reviewMemory(); await reload(); setNotice(result.saved + " memória(s) salva(s).");
                       })}>Analisar agora</button>
                   </div>
                   <button type="button" className={button + " mt-3"} onClick={() => void action("Atualizando atividade…", reload)}>Atualizar lista</button>
+                  <MemoryQueuePanel refreshVersion={queueRefresh} />
                   <div className="mt-4 space-y-3">
                     {data.suggestions.length > 0 && <h3 className="text-sm font-semibold text-slate-700">Sugestões anteriores</h3>}
                     {data.suggestions.map(suggestion => <article key={suggestion.id} className="rounded-2xl border border-indigo-100 bg-white/65 p-4">

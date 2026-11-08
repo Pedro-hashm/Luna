@@ -34,6 +34,15 @@ export type MemoryDashboard = {
   };
 };
 
+export type MemoryQueueEntry = {
+  messageId: string; conversationId: string; createdAt: string; inputMode: string | null; preview: string;
+  state: "pending" | "processing" | "failed" | "processed";
+};
+export type MemoryQueue = {
+  pending: number; failed: number; pageCount: number;
+  active: MemoryQueueEntry[]; recent: MemoryQueueEntry[];
+};
+
 export type MemoryChatChange = {
   id: string;
   messageId: string;
@@ -54,6 +63,8 @@ function send<T>(path: string, method: string, body?: unknown) {
 }
 
 export const listMemories = () => requestJson<MemoryDashboard>(root, { cache: "no-store" });
+export const readMemoryQueue = (page: number, signal: AbortSignal) =>
+  requestJson<MemoryQueue>(root + "/queue?" + new URLSearchParams({ page: String(page) }), { cache: "no-store", signal });
 export const readMemory = (id: string) => requestJson<MemoryItem>(root + itemPath(id), { cache: "no-store" });
 export const readMemoryMap = (subject: string, date: string) =>
   requestJson<MemoryItem[]>(root + "/map?" + new URLSearchParams({ subject, date }), { cache: "no-store" });
