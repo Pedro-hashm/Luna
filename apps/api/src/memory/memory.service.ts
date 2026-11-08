@@ -15,6 +15,12 @@ type Source = { messageId: string; quote: string; notice?: boolean };
 type Controls = { allowModel?: boolean; pinned?: boolean; archived?: boolean };
 const latest = { orderBy: { number: 'desc' as const }, take: 1 };
 const includeCurrent = { revisions: latest };
+const queuePageSize = 20;
+const unfinishedMessages = { done: false, message: { role: 'user' as const } };
+
+function failedMessages(now: Date): Prisma.MemoryJobWhereInput {
+  return { ...unfinishedMessages, attempts: { gte: 3 }, OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] };
+}
 
 @Injectable()
 export class MemoryService {
@@ -58,15 +64,16 @@ export class MemoryService {
   }
 
   async list() {
-    const [settings, items, suggestions, pending, failed] = await Promise.all([
+    const now = new Date();
+    const [settings, items, suggestions, unfinished, failed] = await Promise.all([
       this.settings(),
       this.prisma.memoryItem.findMany({ orderBy: { updatedAt: 'desc' }, take: 300, include: includeCurrent }),
       this.prisma.memorySuggestion.findMany({
         orderBy: { createdAt: 'desc' }, take: 100,
         include: { message: { select: { conversationId: true, createdAt: true } } },
       }),
-      this.prisma.memoryJob.count({ where: { done: false, attempts: { lt: 3 } } }),
-      this.prisma.memoryJob.count({ where: { done: false, attempts: { gte: 3 } } }),
+      this.prisma.memoryJob.count({ where: unfinishedMessages }),
+      this.prisma.memoryJob.count({ where: failedMessages(now) }),
     ]);
     const byKey = new Map(items.map(item => [item.key, item]));
     const date = formatApplicationDate(new Date(), await this.timeZone());
@@ -84,7 +91,7 @@ export class MemoryService {
           existing: item ? { id: item.id, version: item.version, value: item.revisions[0]?.value, allowModel: item.allowModel } : null,
         };
       }),
-      queue: { pending, failed },
+      queue: { pending: Math.max(0, unfinished - failed), failed },
       fixed: {
         tokens: preview.tokens, effectiveLimit: preview.fixedBudget,
         items: fixed.items.map(({ hit, reason, chats }) => ({
@@ -92,6 +99,47 @@ export class MemoryService {
           included: preview.items.some(item => item.id === hit.id),
         })),
       },
+    };
+  }
+
+  async queue(page: number) {
+    if (!Number.isSafeInteger(page) || page < 1 || page > 100_000) {
+      throw new BadRequestException('Página da fila inválida.');
+    }
+    const now = new Date();
+    const select = {
+      done: true, attempts: true, leaseUntil: true,
+      message: { select: { id: true, conversationId: true, inputMode: true, content: true, createdAt: true } },
+    } as const;
+    const [unfinished, failed, active, recent] = await this.prisma.$transaction([
+      this.prisma.memoryJob.count({ where: unfinishedMessages }),
+      this.prisma.memoryJob.count({ where: failedMessages(now) }),
+      this.prisma.memoryJob.findMany({
+        where: unfinishedMessages,
+        orderBy: [{ attempts: 'asc' }, { availableAt: 'asc' }, { messageId: 'asc' }],
+        skip: (page - 1) * queuePageSize, take: queuePageSize, select,
+      }),
+      this.prisma.memoryJob.findMany({
+        where: { done: true, message: { role: 'user' } },
+        orderBy: [{ message: { createdAt: 'desc' } }, { messageId: 'desc' }],
+        take: 5, select,
+      }),
+    ], { isolationLevel: 'RepeatableRead' });
+    const entry = ({ done, attempts, leaseUntil, message }: (typeof active)[number]) => {
+      const state = done ? 'processed' : leaseUntil && leaseUntil > now
+        ? 'processing' : attempts >= 3 ? 'failed' : 'pending';
+      const content = message.content.trim();
+      return {
+        messageId: message.id, conversationId: message.conversationId,
+        inputMode: message.inputMode, createdAt: message.createdAt,
+        preview: content.length > 280 ? content.slice(0, 280).trimEnd() + '…' : content,
+        state,
+      };
+    };
+    return {
+      pending: unfinished - failed, failed,
+      pageCount: Math.max(1, Math.ceil(unfinished / queuePageSize)),
+      active: active.map(entry), recent: recent.map(entry),
     };
   }
 

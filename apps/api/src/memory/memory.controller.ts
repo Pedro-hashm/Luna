@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Delete, Get, Header, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { MemoryService } from './memory.service';
 import { object } from './memory.types';
 import { MemoryWorker } from './memory-worker.service';
@@ -10,6 +10,12 @@ export class MemoryController {
   @Get()
   @Header('Cache-Control', 'no-store')
   list() { return this.memory.list(); }
+
+  @Get('queue')
+  @Header('Cache-Control', 'no-store')
+  queue(@Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number) {
+    return this.memory.queue(page);
+  }
 
   @Get('map')
   @Header('Cache-Control', 'no-store')
