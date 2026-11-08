@@ -832,6 +832,15 @@ export default function SettingsPage() {
           </Link>
         </header>
 
+        <Link href="/settings/personality" className="glass mb-6 flex items-center gap-4 rounded-[1.7rem] p-5 transition hover:border-indigo-200 sm:px-7">
+          <Sparkles className="size-5 shrink-0 text-indigo-600" />
+          <div>
+            <h2 className="font-semibold text-slate-950">Personalidade</h2>
+            <p className="mt-0.5 text-sm text-slate-600">Escolha, ajuste e teste o jeito da Luna.</p>
+          </div>
+          <span className="ml-auto shrink-0 text-sm font-semibold text-indigo-700">Abrir →</span>
+        </Link>
+
         <section className="glass mb-6 rounded-[1.7rem] p-5 sm:p-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
