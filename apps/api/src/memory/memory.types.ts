@@ -75,7 +75,8 @@ export function allowsAutomaticMemory(content: string) {
   return !hasChatScope(content) && !isExplicitMemorySave(content) && !FORGET.test(content) &&
     !looksLikeSecret(content) &&
     !/\b(?:cpf|rg|passaporte|senha|password|token de acesso|chave privada|cartao de credito|conta bancaria)\b/u.test(text) &&
-    !/^(?:finja|imagine|suponha|hipoteticamente|exemplo|hoje\s+(?:estou|preciso|quero|vou))\b/u.test(text) &&
+    !/^(?:finja|imagine|suponha|hipoteticamente|exemplo|hoje\s+(?:eu\s+)?(?:estou|preciso|quero|vou))\b/u.test(text) &&
+    !/^(?:em|no|na)\s+(?:um|uma|meu|minha)\s+(?:jogo|cenario|historia)\s+(?:fictici[oa]|hipotetic[oa])\b/u.test(text) &&
     !/\b(?:so hoje|so desta vez|por enquanto|so por agora)\b/u.test(text);
 }
 
