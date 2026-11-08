@@ -46,6 +46,7 @@ export type ApplicationSettingsResponse = {
   voiceEnabled: boolean;
   voiceDefaultMode: 'wake' | 'live';
   voiceProfileId: string;
+  qwenFastVoiceId: 'qwen-fast-luna' | 'qwen-fast-luna-v2' | 'qwen-fast-rem';
   voiceTtsEngine: 'kokoro' | 'qwen' | 'qwen-fast' | 'f5' | 'fish';
   fishAudioReferenceId: string;
   voiceResponseMode: 'concise' | 'normal';

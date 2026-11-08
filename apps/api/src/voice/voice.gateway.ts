@@ -303,7 +303,9 @@ export class VoiceGateway {
     const usesFishAudio = settings.voiceTtsEngine === 'fish';
     const voiceId = usesFishAudio
       ? settings.fishAudioReferenceId
-      : await this.voice.voiceIdForProfile(settings.voiceProfileId);
+      : settings.voiceTtsEngine === 'qwen-fast'
+        ? settings.qwenFastVoiceId
+        : await this.voice.voiceIdForProfile(settings.voiceProfileId);
     const ttsProvider = usesFishAudio ? this.fishAudioTts
       : settings.voiceTtsEngine === 'qwen' && this.qwenTts ? this.qwenTts
         : settings.voiceTtsEngine === 'qwen-fast' && this.fasterQwenTts ? this.fasterQwenTts

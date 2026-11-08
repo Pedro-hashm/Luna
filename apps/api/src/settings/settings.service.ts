@@ -338,6 +338,7 @@ export class SettingsService {
         if (input.voiceEnabled !== undefined) data.voiceEnabled = this.requiredBoolean(input.voiceEnabled, "voiceEnabled");
         if (input.voiceDefaultMode !== undefined) data.voiceDefaultMode = this.requiredChoice(input.voiceDefaultMode, "voiceDefaultMode", ["wake", "live"]);
         if (input.voiceProfileId !== undefined) data.voiceProfileId = this.requiredText(input.voiceProfileId, "voiceProfileId");
+        if (input.qwenFastVoiceId !== undefined) data.qwenFastVoiceId = this.requiredChoice(input.qwenFastVoiceId, "qwenFastVoiceId", ["qwen-fast-luna", "qwen-fast-luna-v2", "qwen-fast-rem"]);
         if (input.fishAudioReferenceId !== undefined) {
             if (typeof input.fishAudioReferenceId !== "string") {
                 throw new BadRequestException("fishAudioReferenceId must be a string");
@@ -615,6 +616,7 @@ export class SettingsService {
             voiceEnabled: settings.voiceEnabled,
             voiceDefaultMode: settings.voiceDefaultMode as ApplicationSettingsResponse["voiceDefaultMode"],
             voiceProfileId: settings.voiceProfileId,
+            qwenFastVoiceId: settings.qwenFastVoiceId as ApplicationSettingsResponse["qwenFastVoiceId"],
             voiceTtsEngine: settings.voiceTtsEngine as ApplicationSettingsResponse["voiceTtsEngine"],
             fishAudioReferenceId: settings.fishAudioReferenceId,
             voiceResponseMode: settings.voiceResponseMode as ApplicationSettingsResponse["voiceResponseMode"],

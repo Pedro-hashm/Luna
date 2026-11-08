@@ -104,18 +104,18 @@ export class QwenTtsProvider implements TtsProvider {
 export class FasterQwenTtsProvider implements TtsProvider {
   readonly name = 'faster-qwen3-tts';
 
-  async synthesize(text: string, _voiceId: string, _speed: number, signal?: AbortSignal): Promise<{ audio: Buffer; mimeType: string }> {
+  async synthesize(text: string, voiceId: string, _speed: number, signal?: AbortSignal): Promise<{ audio: Buffer; mimeType: string }> {
     const response = await requestProvider(this.name, endpoint(process.env.QWEN_TTS_FAST_BASE_URL ?? 'http://qwen-tts-fast:8100', '/v1/audio/speech'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ input: text }),
+      body: JSON.stringify({ input: text, voice: voiceId }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000),
     });
     if (!response.ok) throw await errorFor(response, this.name);
     return { audio: Buffer.from(await response.arrayBuffer()), mimeType: response.headers.get('content-type')?.split(';')[0] ?? 'audio/wav' };
   }
 
-  async synthesizeStream(text: string, _voiceId: string, _speed: number, signal?: AbortSignal): Promise<{
+  async synthesizeStream(text: string, voiceId: string, _speed: number, signal?: AbortSignal): Promise<{
     chunks: AsyncIterable<Buffer>;
     sampleRate: number;
     cancel: () => Promise<void>;
@@ -123,7 +123,7 @@ export class FasterQwenTtsProvider implements TtsProvider {
     const response = await requestProvider(this.name, endpoint(process.env.QWEN_TTS_FAST_BASE_URL ?? 'http://qwen-tts-fast:8100', '/v1/audio/speech/stream'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ input: text }),
+      body: JSON.stringify({ input: text, voice: voiceId }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000),
     });
     if (!response.ok) throw await errorFor(response, this.name);
@@ -158,7 +158,7 @@ export class FasterQwenTtsProvider implements TtsProvider {
     };
   }
 
-  async listVoices(): Promise<string[]> { return ['luna-clone']; }
+  async listVoices(): Promise<string[]> { return ['qwen-fast-luna', 'qwen-fast-luna-v2', 'qwen-fast-rem']; }
 }
 
 @Injectable()

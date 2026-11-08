@@ -81,6 +81,7 @@ model ApplicationSettings {
   voiceEnabled                       Boolean @default(true) @map("voice_enabled")
   voiceDefaultMode                   String  @default("wake") @map("voice_default_mode")
   voiceProfileId                     String  @default("pf_dora") @map("voice_profile_id")
+  qwenFastVoiceId                    String  @default("qwen-fast-luna") @map("qwen_fast_voice_id")
   voiceTtsEngine                     String  @default("kokoro") @map("voice_tts_engine")
   fishAudioReferenceId               String  @default("") @map("fish_audio_reference_id")
   voiceResponseMode                  String  @default("concise") @map("voice_response_mode")

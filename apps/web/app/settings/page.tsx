@@ -91,6 +91,7 @@ const configSections: ConfigSection[] = [
       { scope: "application", key: "voiceMaxWords", label: "Máximo de palavras", description: "Limite configurável para resposta falada.", kind: "number", min: 10, max: 500 },
       { scope: "application", key: "voiceBargeInEnabled", label: "Barge-in", description: "Interrompe o áudio da Luna quando você começa a falar.", kind: "checkbox" },
       { scope: "application", key: "voiceTtsStreamingEnabled", label: "Áudio em streaming", description: "Só afeta o Faster Qwen3-TTS. Quando ativo, reproduz os blocos enquanto o restante da fala é sintetizado.", kind: "checkbox" },
+      { scope: "application", key: "qwenFastVoiceId", label: "Voz do Faster Qwen3-TTS", description: "Só é usada quando o motor selecionado é Faster Qwen3-TTS.", kind: "select", options: [{ label: "Luna · original (1 amostra)", value: "qwen-fast-luna" }, { label: "Luna · 3 amostras", value: "qwen-fast-luna-v2" }, { label: "Rem · 3 amostras", value: "qwen-fast-rem" }] },
       { scope: "application", key: "sttProvider", label: "Provider STT", description: "Provider de transcrição.", kind: "select", options: [{ label: "Speaches", value: "speaches" }] },
       { scope: "application", key: "voiceTtsEngine", label: "Motor de voz", description: "Escolha entre os motores locais e o Fish Audio.", kind: "select", options: [{ label: "Kokoro · Dora / Luna Nobre", value: "kokoro" }, { label: "Qwen3-TTS · minha voz clonada", value: "qwen" }, { label: "Faster Qwen3-TTS · clonagem rápida", value: "qwen-fast" }, { label: "F5-TTS pt-BR · minha voz clonada", value: "f5" }, { label: "Fish Audio · S2.1 Pro grátis", value: "fish" }] },
       { scope: "application", key: "fishAudioReferenceId", label: "Fish Audio reference_id", description: "Cole o ID da voz no Fish Audio. A chave FISH_AUDIO_API_KEY é lida da .env raiz do projeto.", kind: "text", placeholder: "Cole aqui o ID da voz" },
@@ -987,7 +988,7 @@ export default function SettingsPage() {
 
                       {isOpen ? (
                         <div className="grid gap-3 border-t border-white/70 p-4 sm:grid-cols-2 sm:p-6">
-                          {section.fields.map((field) => (
+                          {section.fields.filter((field) => field.key !== "qwenFastVoiceId" || draft?.application.voiceTtsEngine === "qwen-fast").map((field) => (
                             <ConfigField
                               field={field}
                               key={`${field.scope}.${field.key}`}
