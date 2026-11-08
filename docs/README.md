@@ -14,6 +14,7 @@
 
 - [Configurações persistidas da aplicação](settings/application-settings.md)
 - [Presets de personalidade da Luna](settings/personality.md)
+- [Memórias pessoais da Luna](settings/memory.md)
 
 ## Observabilidade
 

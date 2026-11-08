@@ -118,7 +118,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
         }
         await tx.memoryJob.updateMany({ where: { leaseToken }, data: { done: true, leaseToken: null, leaseUntil: null } });
         return count;
-      });
+      }, { isolationLevel: 'Serializable' });
       return { examined: jobs.length, proposed };
     } catch {
       await this.prisma.memoryJob.updateMany({

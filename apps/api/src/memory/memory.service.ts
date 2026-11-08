@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { formatApplicationDate } from '../time/application-time';
 import {
   bounded, day, flag, FORGET, looksLikeSecret, memoryKey, normal, object, readDraft, REMEMBER,
   sourceFingerprint, type Draft, type MemoryHit, type MemoryResult,
@@ -59,7 +60,11 @@ export class MemoryService {
       include: { revisions: date ? this.revisionsAt(date) : latest },
       orderBy: { updatedAt: 'desc' }, take: 100,
     });
-    return items.filter(item => item.revisions.length).map(({ key: _key, ...item }) => item);
+    const timeZone = date ? await this.timeZone() : 'America/Sao_Paulo';
+    return items.filter(item => {
+      const revision = item.revisions[0];
+      return revision && (!date || revision.validFrom || formatApplicationDate(revision.recordedAt, timeZone) <= date);
+    }).map(({ key: _key, ...item }) => item);
   }
 
   async get(id: string) {
@@ -219,9 +224,10 @@ export class MemoryService {
       orderBy: { updatedAt: 'desc' }, take: 1000,
       include: { revisions: this.revisionsAt(date) },
     });
+    const timeZone = await this.timeZone();
     return items.flatMap(item => {
       const revision = item.revisions[0];
-      if (!revision) return [];
+      if (!revision || (!revision.validFrom && formatApplicationDate(revision.recordedAt, timeZone) > date)) return [];
       const identity = normal(item.subject + ' ' + item.predicate);
       const value = normal(revision.value);
       const score = words.reduce((total, word) => total + (identity.includes(word) ? 3 : value.includes(word) ? 1 : 0), 0);
@@ -238,12 +244,17 @@ export class MemoryService {
       where: {
         status: { not: 'retracted' },
         AND: [
-          { OR: [{ validFrom: { lte: date } }, { validFrom: null, recordedAt: { lte: new Date(date + 'T23:59:59.999Z') } }] },
+          { OR: [{ validFrom: { lte: date } }, { validFrom: null }] },
           { OR: [{ validTo: { gt: date } }, { validTo: null, status: 'active' }] },
         ],
       },
       orderBy: { number: 'desc' as const }, take: 1,
     };
+  }
+
+  private async timeZone(tx: Prisma.TransactionClient = this.prisma) {
+    const settings = await tx.applicationSettings.findUnique({ where: { id: 1 }, select: { appTimezone: true } });
+    return settings?.appTimezone ?? 'America/Sao_Paulo';
   }
 
   private controls(input: Record<string, unknown>): Controls {
@@ -276,7 +287,7 @@ export class MemoryService {
     const item = await tx.memoryItem.findUnique({ where: { key }, include: includeCurrent });
     if ((item?.version ?? null) !== expected) throw new ConflictException('A memória mudou. Revise a versão atual.');
     const current = item?.revisions[0];
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatApplicationDate(new Date(), await this.timeZone(tx));
     if (draft.validFrom && draft.validFrom > today) throw new BadRequestException('Use uma data já ocorrida.');
     const sameValue = current && normal(current.value) === normal(draft.value);
     const sameDates = current && current.validFrom === draft.validFrom;

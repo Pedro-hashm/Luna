@@ -208,6 +208,11 @@ export default function MemoryPage() {
                       {map.map(item => <div key={item.id} className="min-w-0">
                         <div className="mx-auto h-4 w-px bg-indigo-200" aria-hidden="true" />
                         <MemoryCard item={item} selected={editor?.item?.id === item.id} open={() => open(item.id)} />
+                        {subjects.includes(item.revisions[0]?.value) && item.revisions[0]?.value !== subject && (
+                          <button type="button" className={button + " mt-2"} onClick={() => showDate(item.revisions[0].value, mapDate)}>
+                            Explorar {item.revisions[0].value}
+                          </button>
+                        )}
                       </div>)}
                     </div>
                   </div> : <p className="py-5 text-sm text-slate-600">Nenhuma relação para este recorte.</p>}
@@ -220,6 +225,7 @@ export default function MemoryPage() {
                         const result = await reviewMemory(); await reload(); setNotice(result.proposed + " sugestão(ões) encontrada(s).");
                       })}>Analisar agora</button>
                   </div>
+                  <button type="button" className={button + " mt-3"} onClick={() => void action("Atualizando sugestões…", reload)}>Atualizar lista</button>
                   <div className="mt-4 space-y-3">
                     {data.suggestions.map(suggestion => <article key={suggestion.id} className="rounded-2xl border border-indigo-100 bg-white/65 p-4">
                       <h3 className="font-semibold text-slate-900">{suggestion.draft.subject} · {suggestion.draft.predicate}</h3>

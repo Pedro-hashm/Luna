@@ -87,11 +87,12 @@ export function readDraft(value: unknown): Draft {
   if ([draft.subject, draft.predicate, draft.scope, draft.value].some(looksLikeSecret)) {
     throw new BadRequestException('Credenciais não podem ser guardadas como memória.');
   }
+  if (normal(draft.scope) === 'global') draft.scope = 'global';
   return draft as Draft;
 }
 
 export function looksLikeSecret(value: string) {
-  return /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|ghp|github_pat|xoxb)[-_][\w-]{12,}|\b(?:senha|password|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+/iu.test(value);
+  return /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|ghp|github_pat|xoxb)[-_][\w-]{12,}|\b(?:senha|password|api[_ -]?key|access[_ -]?token)(?:\s*[:=]\s*|\s+(?:é|is)\s+)\S+/iu.test(value);
 }
 
 export function isMemoryTool(tool: string) {
