@@ -9,9 +9,10 @@ import { SettingsModule } from './settings/settings.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { TemporalConsolidationModule } from './temporal-consolidation/temporal-consolidation.module';
 import { VoiceModule } from './voice/voice.module';
+import { MemoryModule } from './memory/memory.module';
 
 @Module({
-  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule, TemporalConsolidationModule, VoiceModule],
+  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule, TemporalConsolidationModule, VoiceModule, MemoryModule],
   controllers: [AppController],
   providers: [AppService],
 })

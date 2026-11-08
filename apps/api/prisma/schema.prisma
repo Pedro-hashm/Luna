@@ -154,9 +154,102 @@ model Message {
   researchRuns      ResearchRun[]
   inputMode         String?             @map("input_mode")
   outputMode        String?             @map("output_mode")
+  memorySources     MemorySource[]
+  memorySuggestions MemorySuggestion[]
+  memoryJob         MemoryJob?
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+model MemorySettings {
+  id                 Int     @id @default(1)
+  enabled            Boolean @default(true)
+  suggestionsEnabled Boolean @default(false)
+  allowExplicitUse   Boolean @default(false)
+
+  @@map("memory_settings")
+}
+
+model MemoryItem {
+  id         String           @id @default(uuid()) @db.Uuid
+  key        String           @unique
+  subject    String
+  predicate  String
+  scope      String
+  kind       String
+  allowModel Boolean          @default(false)
+  pinned     Boolean          @default(false)
+  archived   Boolean          @default(false)
+  version    Int              @default(1)
+  updatedAt  DateTime         @updatedAt
+  revisions  MemoryRevision[]
+
+  @@index([scope, archived, allowModel])
+  @@map("memory_items")
+}
+
+model MemoryRevision {
+  id         String         @id @default(uuid()) @db.Uuid
+  itemId     String         @db.Uuid
+  item       MemoryItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  number     Int
+  value      String
+  validFrom  String?
+  validTo    String?
+  status     String
+  recordedAt DateTime      @default(now())
+  sources    MemorySource[]
+
+  @@unique([itemId, number])
+  @@map("memory_revisions")
+}
+
+model MemorySource {
+  id         String         @id @default(uuid()) @db.Uuid
+  revisionId String         @db.Uuid
+  revision   MemoryRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  messageId  String         @db.Uuid
+  message    Message        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  quote      String
+
+  @@unique([revisionId, messageId])
+  @@map("memory_sources")
+}
+
+model MemorySuppression {
+  key       String   @id
+  createdAt DateTime @default(now())
+
+  @@map("memory_suppressions")
+}
+
+model MemorySuggestion {
+  id              String   @id @default(uuid()) @db.Uuid
+  fingerprint     String   @unique
+  itemKey         String
+  expectedVersion Int?
+  messageId       String   @db.Uuid
+  message         Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  draft           Json
+  quote           String
+  createdAt       DateTime @default(now())
+
+  @@index([itemKey])
+  @@map("memory_suggestions")
+}
+
+model MemoryJob {
+  messageId   String    @id @db.Uuid
+  message     Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  availableAt DateTime
+  leaseUntil  DateTime?
+  leaseToken  String?   @db.Uuid
+  attempts    Int       @default(0)
+  done        Boolean   @default(false)
+
+  @@index([done, availableAt])
+  @@map("memory_jobs")
 }
 
 model VoiceSession {

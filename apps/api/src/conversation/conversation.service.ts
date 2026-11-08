@@ -3,9 +3,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { MessageRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
+import { MemoryService } from '../memory/memory.service';
+import { memoryReferences, redactMemoryExecution, redactMemoryPrompt, type MemoryHit } from '../memory/memory.types';
 import type { ChatMessage } from '../llm/types/types';
 import { ObservabilityService } from '../observability/observability.service';
 import type {
@@ -44,6 +48,7 @@ export class ConversationService {
     private readonly settingsService: SettingsService,
     private readonly observabilityService: ObservabilityService,
     private readonly evidenceService: EvidenceService,
+    @Optional() private readonly memory?: MemoryService,
   ) {}
 
   async createConversationWithMessage(
@@ -261,7 +266,7 @@ export class ConversationService {
         ? {
             ...initialSnapshot,
             promptTarget: failurePrompt.target,
-            promptMessages: failurePrompt.messages,
+            promptMessages: redactMemoryPrompt(failurePrompt.messages),
             personality: failurePrompt.personality,
           }
         : initialSnapshot;
@@ -289,15 +294,16 @@ export class ConversationService {
     }
 
     const persistenceStartedAt = Date.now();
-    const assistantMessage = await this.prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        role: MessageRole.assistant,
-        content: execution.luna.response.content,
-        model: execution.luna.response.model,
-        outputMode,
-      },
-    });
+    const data: Prisma.MessageUncheckedCreateInput = {
+      conversationId: conversation.id,
+      role: MessageRole.assistant,
+      content: execution.luna.response.content,
+      model: execution.luna.response.model,
+      outputMode,
+    };
+    const assistantMessage = this.memory
+      ? await this.memory.persistAnswer(data, userMessage.id)
+      : await this.prisma.message.create({ data });
     const persistenceStageMs = Date.now() - persistenceStartedAt;
 
     const evidenceStartedAt = Date.now();
@@ -396,13 +402,24 @@ export class ConversationService {
       contextSnapshot: {
         ...this.createContextSnapshot(
           recentMessages,
-          execution.orchestrator.toolExecutions,
+          execution.orchestrator.toolExecutions.map(redactMemoryExecution),
           execution.orchestrator.finalInstructions,
           execution.state.currentDateTime,
-          execution.luna.promptMessages,
+          redactMemoryPrompt(execution.luna.promptMessages),
           evidenceTrace,
         ),
         personality: execution.luna.personality,
+        memory: {
+          items: [
+            ...memoryReferences(execution.state.memory.items as MemoryHit[], 'fixada'),
+            ...execution.orchestrator.toolExecutions.flatMap((tool) =>
+              tool.result && 'memory' in tool.result ? memoryReferences(tool.result.items, 'busca') : [],
+            ),
+          ],
+          tokens: this.contextManager.estimateTokens(execution.luna.promptMessages
+            .filter(message => message.content.startsWith('Personal memory data for this reply:'))
+            .map(message => message.content).join('\n')),
+        },
       },
       startedAt: traceStartedAt,
       completedAt: new Date(),

@@ -1,4 +1,5 @@
 import { isRuntimeOwnedToolArgument } from './tool-argument-ownership';
+import { isMemoryTool } from '../memory/memory.types';
 import type { ToolExecutionError, ToolExecutionResult } from './types/tool.types';
 
 type ToolExecutionForModel = {
@@ -19,14 +20,20 @@ export function toToolExecutionModelView(
 ): Record<string, unknown> {
   return {
     tool: execution.tool,
-    arguments: Object.fromEntries(
+    arguments: isMemoryTool(execution.tool) ? {} : Object.fromEntries(
       Object.entries(execution.arguments).filter(
         ([key]) => !isRuntimeOwnedToolArgument(key),
       ),
     ),
     status: execution.status,
     result: execution.result
-      ? 'researchRunId' in execution.result
+      ? 'memory' in execution.result
+        ? {
+            action: execution.result.memory,
+            count: execution.result.items.length,
+            outcome: execution.result.outcome,
+          }
+        : 'researchRunId' in execution.result
         ? toWebResearchModelResult(execution.result)
         : 'evidence_id' in execution.result
         ? toConversationContextModelResult(execution.result)

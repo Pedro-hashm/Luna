@@ -2,6 +2,7 @@ x-api: &api
   image: ${LUNA_EVAL_IMAGE:?API image is required}
   environment:
     DATABASE_URL: postgresql://eval:eval@postgres:5432/eval
+    HOST: 0.0.0.0
     PORT: "8000"
     OMNIROUTE_BASE_URL: ${LUNA_EVAL_ROUTER:?Router URL is required}
     LLM_COMBO: ${LUNA_EVAL_MODEL:?Model is required}

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { isMemoryTool, memoryReferences } from '../memory/memory.types';
 import { ObservabilityService } from '../observability/observability.service';
 import { SettingsService } from '../settings/settings.service';
 import { formatApplicationDateTime } from '../time/application-time';
@@ -20,7 +21,10 @@ export class ToolsService {
     private readonly settingsService: SettingsService,
   ) {}
 
-  async execute(request: ExecuteToolRequest): Promise<ExecuteToolResponse> {
+  async execute(request: ExecuteToolRequest, origin?: 'conversation'): Promise<ExecuteToolResponse> {
+    if (isMemoryTool(request.tool) && origin !== 'conversation') {
+      throw new BadRequestException('Ferramentas de memória exigem um turno de conversa.');
+    }
     if (!this.toolRegistry.has(request.tool)) {
       throw new BadRequestException(
         `Unknown tool: ${request.tool || '(missing)'}`,
@@ -56,7 +60,9 @@ export class ToolsService {
       } else if ('evidence_id' in modelFacingResult) {
         delete modelFacingResult.__evidenceDiagnostics;
       }
-      const resultText = 'researchRunId' in result
+      const resultText = 'memory' in result
+        ? result.items.map((item) => item.value).join('\n')
+        : 'researchRunId' in result
         ? result.evidence.map((item) => item.text).join('\n')
         : 'evidence_id' in result
         ? result.results.map((item) => item.content).join('\n')
@@ -100,15 +106,15 @@ export class ToolsService {
                 .join('\n'),
             ),
           },
-          memory: { items: [], tokens: 0 },
+          memory: { items: 'memory' in result ? memoryReferences(result.items, 'busca') : [], tokens: 'memory' in result ? estimatedOutputTokens : 0 },
           tools: {
             items: [
               {
                 name: tool,
                 status: 'success',
-                input,
-                result: modelFacingResult,
-                resultCount: 'researchRunId' in result ? result.evidence.length : result.results.length,
+                input: isMemoryTool(tool) ? {} : input,
+                result: 'memory' in result ? { action: result.memory, outcome: result.outcome } : modelFacingResult,
+                resultCount: 'memory' in result ? result.items.length : 'researchRunId' in result ? result.evidence.length : result.results.length,
                 researchRunId: 'researchRunId' in result ? result.researchRunId : undefined,
                 retrieval: retrievalDiagnostics,
                 conversationRetrieval: conversationDiagnostics,
@@ -162,7 +168,7 @@ export class ToolsService {
             {
               name: tool,
               status: this.traceStatus(error),
-              input,
+              input: isMemoryTool(tool) ? {} : input,
               error: error instanceof Error ? error.message : 'unknown error',
               retrieval: retrievalDiagnostics,
             },

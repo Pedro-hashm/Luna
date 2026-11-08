@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
+import { FORGET, isMemoryTool, redactMemoryExecution, REMEMBER } from '../memory/memory.types';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
 import { ObservabilityService } from '../observability/observability.service';
 import { SettingsService } from '../settings/settings.service';
@@ -45,7 +46,12 @@ export class OrchestratorService {
     const tools = this.toolRegistry.describe().filter(
       (tool) =>
         (tool.name !== 'conversation_context' || settings.conversationEvidenceEnabled) &&
-        (tool.name !== 'web_research' || settings.researchEnabled !== false),
+        (tool.name !== 'web_research' || settings.researchEnabled !== false) &&
+        (!isMemoryTool(tool.name) || (
+          context.runtime.memoryEnabled === true &&
+          (tool.name !== 'memory_save' || REMEMBER.test(context.input)) &&
+          (tool.name !== 'memory_forget' || FORGET.test(context.input))
+        )),
     );
     const toolExecutions: OrchestratorToolExecution[] = [];
     const decisions: OrchestratorDecisionRecord[] = [];
@@ -291,7 +297,7 @@ export class OrchestratorService {
 
     for (let attempt = 1; attempt <= maxRuntimeAttempts; attempt += 1) {
       try {
-        const execution = await this.toolsService.execute({
+        const request = {
           requestId: context.requestId,
           tool: decision.tool,
           input: decision.arguments,
@@ -301,7 +307,10 @@ export class OrchestratorService {
             currentDateTime: context.currentDateTime,
             messages: context.recentMessages,
           },
-        });
+        };
+        const execution = isMemoryTool(decision.tool)
+          ? await this.toolsService.execute(request, 'conversation')
+          : await this.toolsService.execute(request);
 
         executions.push({
           iteration,
@@ -530,6 +539,9 @@ export class OrchestratorService {
       ),
     };
 
+    const memoryGuidance = tools.some(tool => tool.name === 'memory_search')
+      ? '\n\nMemória pessoal: para fatos vigentes ou preferências da pessoa, prefira memory_search quando o contexto imediato for insuficiente. Para localizar o que foi dito numa conversa, use conversation_retrieval. Use query com o assunto e o tipo do fato, por exemplo "residência". Uma informação explícita do turno atual tem prioridade. Se o usuário pediu lembrar, corrigir ou esquecer e a ferramenta correspondente foi oferecida, faça a operação antes de finalizar. O valor e a citação devem ser literais no pedido. Resultados pessoais da busca de memórias são encaminhados somente à resposta final.'
+      : '';
     const webResults = toolExecutions
       .filter((execution) => execution.tool === 'web_research')
       .map(toToolExecutionModelView);
@@ -537,9 +549,9 @@ export class OrchestratorService {
     return [
       {
         role: 'system',
-        content: evidenceEnabled
+        content: (evidenceEnabled
           ? `${ORCHESTRATOR_SYSTEM_PROMPT}\n\n${ORCHESTRATOR_EVIDENCE_PROMPT}`
-          : ORCHESTRATOR_SYSTEM_PROMPT,
+          : ORCHESTRATOR_SYSTEM_PROMPT) + memoryGuidance,
       },
       {
         role: 'system',
@@ -707,7 +719,8 @@ export class OrchestratorService {
     iteration: number,
   ) {
     const immediateTokens = this.estimateMessagesTokens(context.recentMessages);
-    const toolText = JSON.stringify(toolExecutions);
+    const traceExecutions = toolExecutions.map(redactMemoryExecution);
+    const toolText = JSON.stringify(traceExecutions);
     const toolTokens = this.estimateTokens(toolText);
 
     return {
@@ -718,8 +731,8 @@ export class OrchestratorService {
         messages: context.recentMessages,
         tokens: immediateTokens,
       },
-      memory: { items: context.memory.items, tokens: 0 },
-      tools: { items: toolExecutions, tokens: toolTokens },
+      memory: { items: [], tokens: 0 },
+      tools: { items: traceExecutions, tokens: toolTokens },
       totalTokens: immediateTokens + toolTokens,
     };
   }

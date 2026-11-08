@@ -357,7 +357,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${LUNA_V2_API_PORT:-8000}:8000"
+      - "127.0.0.1:${LUNA_V2_API_PORT:-8000}:8000"
     volumes:
       - voice_packs:/voices
       - ./tools/wakeword-training/data:/wake-training-data
@@ -389,7 +389,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${LUNA_V2_WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${LUNA_V2_WEB_PORT:-3000}:3000"
     restart: unless-stopped
 
 volumes:
