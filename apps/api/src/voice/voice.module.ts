@@ -7,11 +7,12 @@ import { VoiceController } from './voice.controller';
 import { VoiceGateway } from './voice.gateway';
 import { F5TtsProvider, FasterQwenTtsProvider, FishAudioTtsProvider, KokoroTtsProvider, OpenWakeWordProvider, QwenTtsProvider, SpeachesSttProvider } from './voice.providers';
 import { VoiceService } from './voice.service';
+import { VoiceSynthesisService } from './voice-synthesis.service';
 
 @Module({
   imports: [PrismaModule, SettingsModule, ConversationModule],
   controllers: [VoiceController],
-  providers: [VoiceService, VoiceGateway, KokoroTtsProvider, QwenTtsProvider, FasterQwenTtsProvider, F5TtsProvider, FishAudioTtsProvider, SpeachesSttProvider, OpenWakeWordProvider, GuardedHttpClient],
+  providers: [VoiceService, VoiceSynthesisService, VoiceGateway, KokoroTtsProvider, QwenTtsProvider, FasterQwenTtsProvider, F5TtsProvider, FishAudioTtsProvider, SpeachesSttProvider, OpenWakeWordProvider, GuardedHttpClient],
   exports: [VoiceGateway, VoiceService],
 })
 export class VoiceModule {}

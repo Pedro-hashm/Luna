@@ -1,14 +1,40 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, ServiceUnavailableException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query, Res, ServiceUnavailableException, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { VoiceService } from './voice.service';
 import { VoiceGateway } from './voice.gateway';
 import { OpenWakeWordProvider } from './voice.providers';
 import type { VoiceMode } from './voice.types';
+import { VoiceSynthesisService } from './voice-synthesis.service';
 
 @Controller('voice')
 export class VoiceController {
-  constructor(private readonly voice: VoiceService, private readonly gateway: VoiceGateway, private readonly wake: OpenWakeWordProvider) {}
+  constructor(private readonly voice: VoiceService, private readonly gateway: VoiceGateway, private readonly wake: OpenWakeWordProvider,
+    private readonly synthesis: VoiceSynthesisService) {}
+
+  @Post('conversations/:conversationId/messages/:messageId/speech')
+  async readMessage(
+    @Param('conversationId', ParseUUIDPipe) conversationId: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Res() response: Response,
+  ) {
+    const abort = new AbortController();
+    const closed = () => abort.abort();
+    response.once('close', closed);
+    try {
+      const result = await this.synthesis.readMessage(conversationId, messageId, offset, abort.signal);
+      if (abort.signal.aborted) return;
+      response.setHeader('content-type', result.mimeType);
+      response.setHeader('cache-control', 'no-store');
+      if (result.next !== null) response.setHeader('x-luna-speech-next', result.next);
+      response.send(result.audio);
+    } catch (error) {
+      if (!abort.signal.aborted) throw error;
+    } finally {
+      response.off('close', closed);
+    }
+  }
 
   @Get('wake/status')
   async wakeStatus() {

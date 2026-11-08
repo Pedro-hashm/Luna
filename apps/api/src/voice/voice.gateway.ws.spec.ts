@@ -2,6 +2,7 @@ import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import { WebSocket } from 'ws';
 import { VoiceGateway } from './voice.gateway';
+import { VoiceSynthesisService } from './voice-synthesis.service';
 
 const SESSION_ID = '22222222-2222-4222-8222-222222222222';
 const CONVERSATION_ID = '11111111-1111-4111-8111-111111111111';
@@ -39,7 +40,8 @@ async function harness(mode: 'live' | 'wake' = 'live') {
   const wake = { name: 'openWakeWord', detect: jest.fn().mockResolvedValue({ detected: false, score: 0.01, model: 'luna', timestamp: Date.now() }), reset: jest.fn().mockResolvedValue(undefined) };
   const stt = { name: 'speaches', transcribe: jest.fn().mockResolvedValue('primeira pergunta') };
   const tts = { name: 'kokoro', synthesize: jest.fn().mockResolvedValue({ audio: Buffer.from('ID3audio'), mimeType: 'audio/mpeg' }) };
-  const gateway = new VoiceGateway(voice as never, conversations as never, settings as never, wake as never, stt as never, tts as never);
+  const synthesis = new VoiceSynthesisService({} as never, settings as never, voice as never, tts as never);
+  const gateway = new VoiceGateway(voice as never, conversations as never, settings as never, wake as never, stt as never, synthesis);
   const server: Server = createServer();
   gateway.attach(server);
   server.listen(0, '127.0.0.1');
