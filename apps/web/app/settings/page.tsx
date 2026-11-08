@@ -7,6 +7,7 @@ import {
   Database,
   Download,
   Globe2,
+  Headphones,
   Layers3,
   LoaderCircle,
   Mic2,
@@ -840,11 +841,20 @@ export default function SettingsPage() {
           <span className="ml-auto shrink-0 text-sm font-semibold text-indigo-700">Abrir →</span>
         </Link>
 
-        <Link href="/settings/personality" className="glass mb-6 flex items-center gap-4 rounded-[1.7rem] p-5 transition hover:border-indigo-200 sm:px-7">
+        <Link href="/settings/personality" className="glass mb-4 flex items-center gap-4 rounded-[1.7rem] p-5 transition hover:border-indigo-200 sm:px-7">
           <Sparkles className="size-5 shrink-0 text-indigo-600" />
           <div>
             <h2 className="font-semibold text-slate-950">Personalidade</h2>
             <p className="mt-0.5 text-sm text-slate-600">Escolha, ajuste e teste o jeito da Luna.</p>
+          </div>
+          <span className="ml-auto shrink-0 text-sm font-semibold text-indigo-700">Abrir →</span>
+        </Link>
+
+        <Link href="/settings/discord" className="glass mb-6 flex items-center gap-4 rounded-[1.7rem] p-5 transition hover:border-indigo-200 sm:px-7">
+          <Headphones className="size-5 shrink-0 text-indigo-600" />
+          <div>
+            <h2 className="font-semibold text-slate-950">Luna no Discord</h2>
+            <p className="mt-0.5 text-sm text-slate-600">Ative o bot, escolha o canal de voz e acompanhe a conexão.</p>
           </div>
           <span className="ml-auto shrink-0 text-sm font-semibold text-indigo-700">Abrir →</span>
         </Link>

@@ -290,6 +290,15 @@ model MemoryJob {
   @@map("memory_jobs")
 }
 
+model DiscordVoiceSettings {
+  id        Int     @id @default(1)
+  enabled   Boolean @default(false)
+  guildId   String? @map("guild_id")
+  channelId String? @map("channel_id")
+
+  @@map("discord_voice_settings")
+}
+
 model VoiceSession {
   id             String       @id @default(uuid()) @db.Uuid
   conversationId String       @map("conversation_id") @db.Uuid

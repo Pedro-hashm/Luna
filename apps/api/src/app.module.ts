@@ -10,9 +10,10 @@ import { ObservabilityModule } from './observability/observability.module';
 import { TemporalConsolidationModule } from './temporal-consolidation/temporal-consolidation.module';
 import { VoiceModule } from './voice/voice.module';
 import { MemoryModule } from './memory/memory.module';
+import { DiscordVoiceModule } from './discord-voice/discord-voice.module';
 
 @Module({
-  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule, TemporalConsolidationModule, VoiceModule, MemoryModule],
+  imports: [PrismaModule, SettingsModule, ObservabilityModule, LlmModule, ConversationModule, ToolsModule, TemporalConsolidationModule, VoiceModule, MemoryModule, DiscordVoiceModule],
   controllers: [AppController],
   providers: [AppService],
 })
