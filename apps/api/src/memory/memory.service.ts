@@ -170,24 +170,28 @@ export class MemoryService {
     return { memory: 'save', items: [], outcome: saved.allowModel ? 'saved' : 'saved-private' };
   }
 
-  async explicitForget(body: Record<string, unknown>, messageId: string, conversationId: string): Promise<MemoryResult> {
+  async explicitForget(messageId: string, conversationId: string): Promise<MemoryResult> {
     const message = await this.source(messageId, conversationId);
     const settings = await this.settings();
     if (!settings.enabled || !FORGET.test(message.content)) throw new BadRequestException('Peça explicitamente para esquecer.');
-    const subject = bounded(body.subject, 'Assunto', 80);
-    const predicate = bounded(body.predicate, 'Relação', 80);
-    const scope = body.scope ? bounded(body.scope, 'Escopo', 80) : 'global';
-    const item = await this.prisma.memoryItem.findUnique({
-      where: { key: memoryKey({ subject, predicate, scope }) }, include: includeCurrent,
+    const words = (value: string) => normal(value).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const request = ' ' + words(message.content.replace(FORGET, '')) + ' ';
+    const mentions = (value: string) => {
+      const phrase = words(value);
+      return Boolean(phrase) && request.includes(' ' + phrase + ' ');
+    };
+    const items = await this.prisma.memoryItem.findMany({ select: {
+      id: true, version: true, subject: true, predicate: true, scope: true,
+      revisions: { ...latest, select: { value: true } },
+    } });
+    const matches = items.filter(({ subject, predicate, scope, revisions }) => {
+      if (scope !== 'global' && !mentions(scope)) return false;
+      const value = revisions[0]?.value;
+      return (mentions(predicate) && (normal(subject) === 'usuario' || mentions(subject))) ||
+        Boolean(value && mentions(value));
     });
-    const normalized = normal(message.content);
-    const target = item?.revisions[0]?.value;
-    const explicitTarget = normalized.includes(normal(predicate)) &&
-      (normal(subject) === 'usuario' || normalized.includes(normal(subject)));
-    if (!item || !(explicitTarget || (target && normalized.includes(normal(target)))) ||
-      (scope !== 'global' && !normalized.includes(normal(scope)))) {
-      throw new BadRequestException('Identifique exatamente a memória a esquecer.');
-    }
+    if (matches.length !== 1) throw new BadRequestException('Identifique exatamente a memória a esquecer.');
+    const [item] = matches;
     await this.forget(item.id, item.version);
     return { memory: 'forget', items: [], outcome: 'forgotten' };
   }

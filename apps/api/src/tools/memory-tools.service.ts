@@ -45,11 +45,11 @@ export class MemoryTools implements OnModuleInit {
     });
     this.registry.register({
       name: 'memory_forget',
-      description: 'Remove uma memória identificada quando o usuário pede explicitamente para esquecê-la. Use o assunto, a relação e o escopo, sem IDs internos.',
-      inputSchema: { type: 'object', additionalProperties: false, properties: identity },
-      execute: async (input, context) => {
+      description: 'Remove uma memória quando o usuário pede explicitamente para esquecê-la. A ferramenta identifica o alvo pelo texto original do pedido.',
+      inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+      execute: async (_input, context) => {
         const { messageId, conversationId } = this.runtime(context);
-        return this.memory.explicitForget(input, messageId, conversationId);
+        return this.memory.explicitForget(messageId, conversationId);
       },
     });
   }
