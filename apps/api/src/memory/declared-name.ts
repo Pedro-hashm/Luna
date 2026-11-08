@@ -1,10 +1,23 @@
-import { hasChatScope, type Draft } from './memory.types';
+import { hasChatScope, normal, type Draft } from './memory.types';
 
 const SELF_INTRODUCTION = /^(?:meu nome(?:\s+(completo|preferido))?\s+[ée]|me chamo)\s+(.+)$/iu;
 const FULL_NAME = /^(?:e\s+)?(?:(?:o|meu)\s+)?nome completo\s+[ée]\s+(.+)$/iu;
 const GREETING = /^prazer(?:\s+em\s+te\s+conhecer)?$/iu;
 const NAME_WORD = /^[\p{L}\p{M}]+(?:[-'’][\p{L}\p{M}]+)*$/u;
 const OTHER_CLAUSE = /\b(?:sou|moro|trabalho|estou|gosto|uso|quero|fingindo|nome\s+completo)\b/iu;
+
+export function requestedName(content: string) {
+  const question = /^(?:qual(?:\s+e)?(?:\s+o)?\s+meu\s+nome(?:\s+(completo|preferido))?|como\s+eu\s+me\s+chamo)[?!.]*(?:\s+(?:responda|diga)(?:\s+(?:so|apenas|somente))?\s+(?:com\s+)?o\s+nome[?!.]*)?$/u
+    .exec(normal(content));
+  return question ? 'nome' + (question[1] ? ' ' + question[1] : '') : undefined;
+}
+
+export function nameRelationMatches(request: string, relation: string) {
+  const predicate = normal(relation);
+  return request === 'nome'
+    ? ['nome', 'nome preferido', 'nome de preferencia', 'nome do usuario', 'como chamar'].includes(predicate)
+    : predicate === request;
+}
 
 export function declaredNames(content: string): Array<Draft & { quote: string }> {
   if (hasChatScope(content)) return [];

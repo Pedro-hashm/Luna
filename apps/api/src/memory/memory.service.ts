@@ -9,6 +9,7 @@ import {
 import {
   MAX_FIXED_MEMORY_TOKENS, MEMORY_RECALL_WINDOW_DAYS, rankFixedMemory, selectMemoryContext, type FixedMemory,
 } from './memory-context';
+import { nameRelationMatches } from './declared-name';
 
 type Source = { messageId: string; quote: string };
 type Controls = { allowModel?: boolean; pinned?: boolean; archived?: boolean };
@@ -259,10 +260,11 @@ export class MemoryService {
   }
 
   async search(query: string, date: string, scope: string): Promise<MemoryResult> {
+    const name = /^(nome|nome completo|nome preferido)$/u.test(normal(query)) ? normal(query) : undefined;
     const words = [...new Set(normal(query).split(/[^\p{L}\p{N}]+/u)
       .filter(word => word.length > 2 && !/^(qual|onde|como|atual|usuario|sobre|memoria|voce|meu|minha|moro|estou|falei|que)$/u.test(word)))].slice(0, 10);
     if (/\b(cidade|residencia|moro|morava|moradia|morar)\b/u.test(normal(query))) words.push('residencia', 'cidade');
-    return { memory: 'search', items: words.length ? await this.hits(date, scope, words) : [] };
+    return { memory: 'search', items: words.length ? await this.hits(date, scope, words, name) : [] };
   }
 
   async persistAnswer(
@@ -295,7 +297,7 @@ export class MemoryService {
     });
   }
 
-  private async hits(date: string, scope: string, words: string[]): Promise<MemoryHit[]> {
+  private async hits(date: string, scope: string, words: string[], name?: string): Promise<MemoryHit[]> {
     if (!(await this.settings()).enabled) return [];
     const items = await this.prisma.memoryItem.findMany({
       where: { scope: { equals: scope, mode: 'insensitive' }, archived: false, allowModel: true },
@@ -304,6 +306,7 @@ export class MemoryService {
     });
     const timeZone = await this.timeZone();
     return items.flatMap(item => {
+      if (name && (normal(item.subject) !== 'usuario' || !nameRelationMatches(name, item.predicate))) return [];
       const revision = item.revisions[0];
       if (!revision || (!revision.validFrom && formatApplicationDate(revision.recordedAt, timeZone) > date)) return [];
       const identity = normal(item.subject + ' ' + item.predicate);

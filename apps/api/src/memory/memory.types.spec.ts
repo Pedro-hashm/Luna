@@ -1,7 +1,7 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
 import { rankFixedMemory, selectMemoryContext } from './memory-context';
-import { declaredNames } from './declared-name';
+import { declaredNames, nameRelationMatches, requestedName } from './declared-name';
 import { day, isChatOnlyMemoryRequest, isExplicitMemorySave, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, type MemoryHit } from './memory.types';
 
 describe('personal memory boundaries', () => {
@@ -18,6 +18,15 @@ describe('personal memory boundaries', () => {
       'Meu nome é Caio, estou contando uma história.', 'Meu nome é Caio e moro em Recife.']) {
       expect(declaredNames(text)).toEqual([]);
     }
+  });
+
+  it('separates direct requests for a name from other tasks and name fields', () => {
+    expect(requestedName('Qual é meu nome completo? Responda só o nome.')).toBe('nome completo');
+    expect(requestedName('Como eu me chamo?')).toBe('nome');
+    expect(requestedName('Qual é meu nome? Pesquise também as notícias de hoje.')).toBeUndefined();
+    expect(nameRelationMatches('nome completo', 'nome')).toBe(false);
+    expect(nameRelationMatches('nome', 'nome do usuário')).toBe(true);
+    expect(nameRelationMatches('nome', 'nome completo')).toBe(false);
   });
 
   it('normalizes a fact key without collapsing distinct scopes', () => {

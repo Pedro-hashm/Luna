@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
 import { FORGET, isExplicitMemorySave, isMemoryTool, redactMemoryExecution } from '../memory/memory.types';
+import { declaredNames, nameRelationMatches, requestedName } from '../memory/declared-name';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
 import { ObservabilityService } from '../observability/observability.service';
 import { SettingsService } from '../settings/settings.service';
@@ -55,6 +56,14 @@ export class OrchestratorService {
     );
     const toolExecutions: OrchestratorToolExecution[] = [];
     const decisions: OrchestratorDecisionRecord[] = [];
+    const name = requestedName(context.input);
+    if (name && settings.orchestratorMaxToolCalls > 0 && tools.some(tool => tool.name === 'memory_search') &&
+      !context.recentMessages.some(message => message.role === 'user' &&
+        declaredNames(message.content).some(fact => nameRelationMatches(name, fact.predicate)))) {
+      decisions.push({ iteration: 1, type: 'tool_call', tool: 'memory_search', status: 'accepted' });
+      await this.executeTool(context, 1, { type: 'tool_call', tool: 'memory_search', arguments: { query: name } }, toolExecutions);
+      return this.result(context, toolExecutions, decisions, 1, DEFAULT_FINAL_INSTRUCTIONS);
+    }
 
     for (
       let iteration = 1;
