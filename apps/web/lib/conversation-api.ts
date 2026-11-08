@@ -336,6 +336,7 @@ export interface ConversationInspector {
   };
   responses: Array<{
     traceId: string;
+    requestId: string | null;
     responseMessageId: string | null;
     response: {
       id: string;
@@ -361,6 +362,7 @@ export interface ConversationInspector {
       tools?: ContextPart;
       system?: ContextPart;
       orchestrator?: ContextPart;
+      personality?: { id: string; name: string; revision: number };
       promptTarget?: "orchestrator" | "luna";
       promptIteration?: number;
       promptMessages?: PromptMessage[];
@@ -582,7 +584,7 @@ export async function getResearchRun(runId: string): Promise<ResearchRunView> {
   );
 }
 
-async function requestJson<T>(endpoint: string, init?: RequestInit): Promise<T> {
+export async function requestJson<T>(endpoint: string, init?: RequestInit): Promise<T> {
   const response = await fetch(endpoint, init);
 
   const payload: unknown = await response.json().catch(() => undefined);

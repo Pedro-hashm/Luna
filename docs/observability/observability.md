@@ -21,7 +21,8 @@ O trace registra:
 - latência total;
 - duração por etapa;
 - snapshot do contexto, separado em imediato, memória, resultados de tools, sistema da Luna e instruções do Orchestrator;
-- conversa e mensagem de resposta relacionadas, quando existirem.
+- conversa e mensagem de resposta relacionadas, quando existirem;
+- nome, ID e revisão do preset de personalidade na geração final, quando disponíveis.
 
 Quando o provedor não devolve `usage`, a aplicação estima tokens pela regra aproximada de quatro caracteres por token. A interface identifica esses números como estimativas.
 
@@ -73,7 +74,7 @@ Parte da interface foi criada antecipadamente para acompanhar a arquitetura plan
 - O Orchestrator reutiliza o mesmo `requestId` em todas as iterações, permitindo agrupar LLM, tools e resposta final.
 - O MemoryModule deverá preencher a parte `memory` do contexto com itens recuperados e tokens consumidos.
 - O Context Builder deverá ser a fonte oficial da composição e da contagem do contexto final; o contador visual do chat deve continuar identificado como estimativa enquanto isso não existir.
-- O LunaModule já registra a geração final; personalidade e políticas futuras podem complementar o snapshot sem criar outro formato de trace.
+- O LunaModule registra a geração final e o preset de personalidade aplicado no mesmo snapshot.
 - Uma futura autenticação/escopo por usuário deve ser aplicada também nos endpoints do inspector e dashboard.
 
 ## Token counter

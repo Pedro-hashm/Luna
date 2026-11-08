@@ -36,6 +36,8 @@ enum TemporalRelationType {
 
 model ApplicationSettings {
   id                              Int      @id @default(1)
+  activePersonalityPresetId       String?  @map("active_personality_preset_id")
+  activePersonalityPreset         PersonalityPreset? @relation(fields: [activePersonalityPresetId], references: [id], onDelete: SetNull)
   llmCombo                        String   @default("local-general") @map("llm_combo")
   orchestratorCombo               String   @default("local-general") @map("orchestrator_combo")
   appTimezone                     String   @default("America/Sao_Paulo") @map("app_timezone")
@@ -103,6 +105,20 @@ model ApplicationSettings {
   updatedAt                       DateTime @updatedAt @map("updated_at")
 
   @@map("application_settings")
+}
+
+model PersonalityPreset {
+  id           String @id @default(uuid())
+  name         String
+  instructions String
+  tone         String @default("")
+  detail       String @default("")
+  humor        String @default("")
+  builtIn      Boolean @default(false) @map("built_in")
+  revision     Int @default(1)
+  activeIn     ApplicationSettings[]
+
+  @@map("personality_presets")
 }
 
 model Conversation {

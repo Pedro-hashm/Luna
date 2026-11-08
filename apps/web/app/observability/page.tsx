@@ -564,6 +564,12 @@ function Inspector({
             <div className="min-w-0">
               <div className="rounded-2xl border border-white/80 bg-white/45 p-4">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500"><TraceStatus status={activeTrace.status} /><span>{activeTrace.combo ?? "Sem combo"}</span><span>·</span><span>{activeTrace.model ?? activeTrace.toolName ?? "Sem modelo"}</span><span>·</span><span>{formatDateTime(activeTrace.createdAt)}</span></div>
+                {activeTrace.context.personality && (
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-800">{activeTrace.context.personality.name} · rev. {activeTrace.context.personality.revision}</span>
+                    {activeTrace.requestId && <code className="break-all px-1 py-1">{activeTrace.requestId}</code>}
+                  </div>
+                )}
                 {activeTrace.response ? <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-800">{activeTrace.response.content}</p> : <p className="mt-4 text-sm text-slate-500">Esta execução não produziu uma resposta de LLM.</p>}
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
