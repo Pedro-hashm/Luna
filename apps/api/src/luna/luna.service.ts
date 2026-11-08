@@ -4,7 +4,7 @@ import { LlmService } from '../llm/llm.service';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
 import { SettingsService } from '../settings/settings.service';
 import { toToolExecutionModelView } from '../tools/tool-model-view';
-import { FORGET, MEMORY_PROMPT_PREFIX, REMEMBER, selectMemoryContext } from '../memory/memory.types';
+import { FORGET, isExplicitMemorySave, MEMORY_PROMPT_PREFIX, selectMemoryContext } from '../memory/memory.types';
 import type { LunaGenerateInput, LunaGenerateResult } from './luna.types';
 import { toRuntimeChatMessages } from '../user-agent/context-manager/runtime-context';
 import { ensureRegisteredWebCitations } from './web-citations';
@@ -165,7 +165,7 @@ export class LunaService {
     }
 
     const latestUserMessage = input.context.recentMessages.findLast(message => message.role === 'user');
-    if (latestUserMessage && (REMEMBER.test(latestUserMessage.content) || FORGET.test(latestUserMessage.content))) {
+    if (latestUserMessage && (isExplicitMemorySave(latestUserMessage.content) || FORGET.test(latestUserMessage.content))) {
       messages.push({
         role: 'system',
         content: 'Confirme uma gravação ou exclusão de memória somente se a ferramenta desta iteração confirmou a operação. Se o resultado for saved-private, diga que foi guardado como privado e que pode ser autorizado na tela de Memórias.',

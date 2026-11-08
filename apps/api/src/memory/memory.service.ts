@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatApplicationDate } from '../time/application-time';
 import {
-  bounded, day, flag, FORGET, looksLikeSecret, memoryKey, normal, object, readDraft, REMEMBER,
+  bounded, day, flag, FORGET, isExplicitMemorySave, looksLikeSecret, memoryKey, normal, object, readDraft,
   sourceFingerprint, type Draft, type MemoryHit, type MemoryResult,
 } from './memory.types';
 
@@ -151,7 +151,7 @@ export class MemoryService {
   async explicitSave(body: Record<string, unknown>, messageId: string, conversationId: string): Promise<MemoryResult> {
     const message = await this.source(messageId, conversationId);
     const settings = await this.settings();
-    if (!settings.enabled || !REMEMBER.test(message.content)) throw new BadRequestException('Peça explicitamente para lembrar ou corrigir.');
+    if (!settings.enabled || !isExplicitMemorySave(message.content)) throw new BadRequestException('Peça explicitamente para lembrar ou corrigir.');
     const draft = readDraft(body);
     const quote = bounded(body.quote, 'Trecho de origem', 1000);
     if (!message.content.includes(quote) || !normal(quote).includes(normal(draft.value)) || looksLikeSecret(quote)) {

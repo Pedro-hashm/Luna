@@ -5,7 +5,8 @@ export const MEMORY_KINDS = ['profile', 'preference', 'project', 'relationship',
 export const MEMORY_OPERATIONS = ['add', 'change', 'correct'] as const;
 export const MEMORY_PROMPT_PREFIX = 'Personal memory data for this reply:';
 export const MEMORY_TOOLS = ['memory_search', 'memory_save', 'memory_forget'] as const;
-export const REMEMBER = /^(?:luna[,\s]+)?(?:(?:lembre(?:-se)?|lembra)\s+(?:que|de guardar|disso|disto)|guarde|guarda|salve|salva|memorize|anote|(?:corrija|atualize)\s+(?:(?:na|a)\s+)?mem[oó]ria)\b/iu;
+const REMEMBER = /^(?:luna[,\s]+)?(?:(?:lembre(?:-se)?|lembra)\s+(?:que|de guardar|disso|disto)|guarde|guarda|salve|salva|memorize|anote|(?:corrija|atualize)\s+(?:(?:na|a)\s+)?mem[oó]ria)\b/iu;
+const CHAT_SCOPE = /\b(?:n(?:est|ess)[ae]|(?:para|durante)\s+(?:est|ess)[ae])\s+(?:conversa|chat|contexto|turno|sessao)\b/u;
 export const FORGET = /^(?:luna[,\s]+)?(?:esque[cç]a|esquece|apague da mem[oó]ria|remova da mem[oó]ria)\b/iu;
 
 export type Draft = {
@@ -55,6 +56,14 @@ export function day(value: unknown): string | null {
 
 export function normal(value: string): string {
   return value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim().replace(/\s+/gu, ' ');
+}
+
+export function isChatOnlyMemoryRequest(content: string) {
+  return REMEMBER.test(content) && CHAT_SCOPE.test(normal(content));
+}
+
+export function isExplicitMemorySave(content: string) {
+  return REMEMBER.test(content) && !CHAT_SCOPE.test(normal(content));
 }
 
 export function hash(value: string) {

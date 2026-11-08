@@ -1,6 +1,6 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
-import { day, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, selectMemoryContext, type MemoryHit } from './memory.types';
+import { day, isChatOnlyMemoryRequest, isExplicitMemorySave, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, selectMemoryContext, type MemoryHit } from './memory.types';
 
 describe('personal memory boundaries', () => {
   it('normalizes a fact key without collapsing distinct scopes', () => {
@@ -14,6 +14,13 @@ describe('personal memory boundaries', () => {
     expect(() => day('2026-02-30')).toThrow();
     expect(looksLikeSecret('Minha senha é exemplo-sintético')).toBe(true);
     expect(() => readDraft({ subject: 'Usuário', predicate: 'chave', kind: 'profile', value: 'sk-fakefixtureabcdefghijklmnop' })).toThrow();
+  });
+
+  it('keeps instructions scoped to the current chat out of durable memory', () => {
+    const message = 'Luna, guarde só neste contexto de teste: a nave se chama Aurora Sete.';
+    expect(isChatOnlyMemoryRequest(message)).toBe(true);
+    expect(isExplicitMemorySave(message)).toBe(false);
+    expect(isExplicitMemorySave('Lembre que meu editor padrão é Boreal Desk.')).toBe(true);
   });
 
   it('forgets a uniquely named memory from the original request and refuses ambiguous targets', async () => {

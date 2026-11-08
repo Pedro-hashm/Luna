@@ -114,10 +114,12 @@ try {
   await step('local batch proposes grounded facts and forgetting blocks replay', async () => {
     await json('/memory/settings', 'PATCH', { suggestionsEnabled: true });
     const hobby = await chat('Eu coleciono xícaras azuis como passatempo.');
-    const ephemeral = await chat('Hoje estou com pressa. Responda com poucas palavras só nesta conversa.');
+    const ephemeral = await chat('Guarde só neste contexto de teste: a cor do meu editor é púrpura limão.');
+    assert.ok(!ephemeral.traces.some(trace => trace.toolName === 'memory_save'));
     const queued = await json('/memory');
     assert.ok(queued.queue.pending >= 2);
     assert.ok(!queued.items.some(item => /xícaras azuis/i.test(item.revisions[0].value)));
+    assert.ok(!queued.items.some(item => /púrpura limão/i.test(item.revisions[0].value)));
     const batch = await json('/memory/review', 'POST');
     const proposals = await json('/memory');
     assert.ok(!proposals.suggestions.some(item => item.messageId === ephemeral.user));

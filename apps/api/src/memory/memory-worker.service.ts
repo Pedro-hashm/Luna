@@ -2,7 +2,7 @@ import { ConflictException, Injectable, Logger, OnModuleDestroy, OnModuleInit } 
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
-import { bounded, hash, looksLikeSecret, memoryKey, normal, object, readDraft, sourceFingerprint } from './memory.types';
+import { bounded, hash, isChatOnlyMemoryRequest, looksLikeSecret, memoryKey, normal, object, readDraft, sourceFingerprint } from './memory.types';
 
 const BATCH = 8;
 
@@ -68,7 +68,8 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
 
     try {
       const messages = jobs.filter(({ message }) =>
-        message.role === 'user' && message.content.trim().length >= 12 && !looksLikeSecret(message.content));
+        message.role === 'user' && message.content.trim().length >= 12 &&
+        !looksLikeSecret(message.content) && !isChatOnlyMemoryRequest(message.content));
       const candidates = messages.length ? await this.extract(messages.map(({ message }) => message.content.slice(0, 1800))) : [];
       const proposed = await this.prisma.$transaction(async (tx) => {
         const settings = await tx.memorySettings.findUniqueOrThrow({ where: { id: 1 } });

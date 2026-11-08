@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
-import { FORGET, isMemoryTool, redactMemoryExecution, REMEMBER } from '../memory/memory.types';
+import { FORGET, isExplicitMemorySave, isMemoryTool, redactMemoryExecution } from '../memory/memory.types';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
 import { ObservabilityService } from '../observability/observability.service';
 import { SettingsService } from '../settings/settings.service';
@@ -49,7 +49,7 @@ export class OrchestratorService {
         (tool.name !== 'web_research' || settings.researchEnabled !== false) &&
         (!isMemoryTool(tool.name) || (
           context.runtime.memoryEnabled === true &&
-          (tool.name !== 'memory_save' || REMEMBER.test(context.input)) &&
+          (tool.name !== 'memory_save' || isExplicitMemorySave(context.input)) &&
           (tool.name !== 'memory_forget' || FORGET.test(context.input))
         )),
     );
