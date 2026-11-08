@@ -5,9 +5,9 @@ const url = process.env.WEB_URL;
 if (!url) throw new Error('Set WEB_URL to the disposable web stack.');
 const browser = await chromium.launch();
 try {
-  const page = await browser.newPage({ viewport: { width: 1050, height: 900 } });
+  const page = await browser.newPage({ baseURL: url, viewport: { width: 1050, height: 900 } });
   page.setDefaultTimeout(20_000);
-  await page.goto(new URL('/settings', url));
+  await page.goto('/settings');
   await page.getByRole('link', { name: /Personalidade/ }).click();
   await page.getByRole('heading', { name: 'Personalidade', exact: true }).waitFor();
 

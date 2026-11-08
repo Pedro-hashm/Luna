@@ -85,7 +85,7 @@ Hoje, `ConversationRetrievalTool` se registra ao iniciar o `ToolsModule`. O prom
 
 ## LunaModule mínimo
 
-O `LunaModule` atual é uma camada mínima, sem a personalidade final planejada. Ele recebe o contexto imediato, instruções operacionais e resultados confiáveis de tools; então reutiliza o `LlmModule` com `llmCombo` para produzir a resposta persistida pela conversa. Resultados de `conversation_retrieval` incluem `timeRange` gerado pelo sistema; a instrução-base da Luna trata essa faixa como proveniência temporal confiável e, quando houve `dateFrom`/`dateTo`, limita a evidência histórica ao conteúdo devolvido dentro da janela.
+O `LunaModule` recebe o contexto imediato, instruções operacionais e resultados confiáveis de tools. Ele aplica o [preset de personalidade ativo](../settings/personality.md) ao estilo e usa o `LlmModule` com `llmCombo` para produzir a resposta persistida pela conversa. Resultados de `conversation_retrieval` incluem `timeRange` gerado pelo sistema; a instrução-base da Luna trata essa faixa como proveniência temporal confiável e, quando houve `dateFrom`/`dateTo`, limita a evidência histórica ao conteúdo devolvido dentro da janela.
 
 O combo de decisão é independente e vem de `orchestratorCombo`.
 

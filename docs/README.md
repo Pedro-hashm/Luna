@@ -13,6 +13,7 @@
 ## Configurações
 
 - [Configurações persistidas da aplicação](settings/application-settings.md)
+- [Presets de personalidade da Luna](settings/personality.md)
 
 ## Observabilidade
 
@@ -30,4 +31,4 @@ As features de observabilidade incluem extensões preparadas para módulos futur
 - [Catálogo de tools](orchestrator/tools.md)
 - [Tool `conversation_retrieval`](orchestrator/tools/conversation-retrieval.md)
 
-O Orchestrator, UserAgent e a integração inicial da `conversation_retrieval` estão implementados. Memória permanente, personalidade completa da Luna, context builder dinâmico e outras tools continuam planejados e devem ser atualizados junto com as decisões de implementação.
+O Orchestrator, UserAgent e a integração inicial da `conversation_retrieval` estão implementados. Memória permanente, context builder dinâmico e outras tools continuam planejados e devem ser atualizados junto com as decisões de implementação.

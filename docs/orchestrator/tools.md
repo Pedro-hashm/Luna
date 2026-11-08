@@ -26,7 +26,7 @@ Orchestrator
        personalidade e resposta final
 ```
 
-O Orchestrator já itera enquanto precisar consultar tools, respeitando limites configuráveis de iterações e chamadas. Quando tem contexto suficiente, retorna instruções operacionais e resultados de tools ao `UserAgent`, que encaminha esses dados ao `LunaModule` para gerar a resposta final. A personalidade completa da Luna ainda é futura.
+O Orchestrator já itera enquanto precisar consultar tools, respeitando limites configuráveis de iterações e chamadas. Quando tem contexto suficiente, retorna instruções operacionais e resultados de tools ao `UserAgent`, que encaminha esses dados ao `LunaModule` para gerar a resposta final. O preset de personalidade é aplicado na geração final.
 
 O combo dessas chamadas é independente do combo usado pela geração final:
 
@@ -210,7 +210,7 @@ Por alterar dados externos, deverá exigir uma política de permissão e confirm
 - definir quais tools são somente leitura e quais alteram dados;
 - definir aprovação para `memory_create`, `memory_update`, `memory_delete` e `obsidian_write`;
 - definir a política de memória e como ela preenche o estado do UserAgent;
-- evoluir o `LunaModule` mínimo para personalidade, contexto compilado e políticas de resposta.
+- evoluir o `LunaModule` para contexto compilado e políticas de resposta.
 
 ## Estado atual
 
