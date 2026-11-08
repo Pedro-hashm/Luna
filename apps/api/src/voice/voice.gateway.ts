@@ -296,7 +296,13 @@ export class VoiceGateway {
     if (generation !== client.generation) return;
     await this.voice.event(client.sessionId, 'voice.thinking.completed', { latencyMs: Date.now() - thinkingStarted, userMessageId: result.messages[0].id, assistantMessageId: result.messages[1].id });
     const text = result.messages[1].content;
-    this.send(client, { type: 'response', text, messages: result.messages, conversationId: result.conversationId });
+    this.send(client, {
+      type: 'response',
+      text,
+      messages: result.messages,
+      conversationId: result.conversationId,
+      requestId: result.requestId,
+    });
     await this.setState(client, 'speaking');
     const settings = await this.settings.getApplicationSettings();
     client.ttsAbort = new AbortController();

@@ -289,6 +289,7 @@ export class ObservabilityService {
       },
       responses: traces.map((trace) => ({
         traceId: trace.id,
+        requestId: trace.requestId,
         responseMessageId: trace.responseMessageId,
         response: trace.responseMessage
           ? {

@@ -116,6 +116,7 @@ export type ConversationInspector = {
   };
   responses: Array<{
     traceId: string;
+    requestId: string | null;
     responseMessageId: string | null;
     response: {
       id: string;
