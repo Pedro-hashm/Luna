@@ -16,11 +16,12 @@ describe('LunaService', () => {
       ], runtime: { memoryEnabled: true, memorySuggestionsEnabled: true, memoryAllowExplicitUse: true, previousMemoryReview: 'review' } },
       finalInstructions: '', toolExecutions: [],
     } as unknown as LunaGenerateInput;
-    await service.generate(input);
+    const result = await service.generate(input);
     const content = chat.mock.calls[0][0].messages.map(message => message.content).join('\n');
     expect(content).toContain('memória pessoal entre conversas');
     expect(content).toContain('aguardando aprovação');
     expect(content).toContain('Só confirme uma operação com resultado bem-sucedido');
+    expect(result.response.content).toContain('aguardando sua aprovação');
   });
 
   it('applies configurable concise guidance only to voice output', async () => {

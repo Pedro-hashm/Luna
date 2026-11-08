@@ -74,6 +74,11 @@ export function asksAboutMemory(content: string) {
   return /\b(?:memorias?|lembr\p{L}*|guard\p{L}*|esquec\p{L}*|salv\p{L}*)\b/u.test(normal(content));
 }
 
+export function asksAboutPreviousMemory(content: string) {
+  const question = normal(content).replace(/[?!.]+$/u, '').trim();
+  return /^(?:(?:tu|voce|vc)\s+)?(?:nao\s+)?(?:(?:devia|deveria|pode|consegue|vai)\s+(?:se\s+)?(?:lembrar|salvar|guardar)|(?:ja\s+)?(?:se\s+)?(?:lembra|salvou|guardou|lembrou))\s+(?:disso|disto|isso|isto)(?:\s+nao)?$/u.test(question);
+}
+
 export function hash(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }

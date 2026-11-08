@@ -4,7 +4,7 @@ import { LlmService } from '../llm/llm.service';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
 import { SettingsService } from '../settings/settings.service';
 import { toToolExecutionModelView } from '../tools/tool-model-view';
-import { FORGET, isExplicitMemorySave } from '../memory/memory.types';
+import { asksAboutPreviousMemory, FORGET, isExplicitMemorySave } from '../memory/memory.types';
 import { selectMemoryContext } from '../memory/memory-context';
 import type { LunaGenerateInput, LunaGenerateResult } from './luna.types';
 import { toRuntimeChatMessages } from '../user-agent/context-manager/runtime-context';
@@ -34,6 +34,27 @@ const MEMORY_REVIEW = {
   processed: 'A mensagem anterior do usuário foi analisada e não tem sugestão pendente.',
   failed: 'A análise para sugestões da mensagem anterior do usuário não foi concluída.',
 };
+
+function previousMemoryReply(input: LunaGenerateInput) {
+  const { recentMessages, runtime } = input.context;
+  const latest = recentMessages.findLast(message => message.role === 'user');
+  if (!latest || !asksAboutPreviousMemory(latest.content)) return undefined;
+  if (runtime?.memoryEnabled === false) {
+    return 'A memória entre conversas está desativada nas configurações. Ainda posso usar o que você me contou neste chat.';
+  }
+  switch (runtime?.previousMemoryReview) {
+    case 'review':
+      return 'Posso usar memórias entre conversas. A mensagem anterior tem uma sugestão aguardando sua aprovação em **Configurações → Memórias da Luna → Sugestões**. Depois de aprovar e permitir o uso no chat, posso consultá-la em outros chats.';
+    case 'queued':
+      return 'Posso usar memórias entre conversas. A mensagem anterior está na fila de análise. Se ela gerar uma sugestão, você pode aprová-la em **Configurações → Memórias da Luna → Sugestões**.';
+    case 'processed':
+      return 'Posso usar memórias entre conversas. A mensagem anterior foi analisada e está sem sugestão pendente. Se quiser guardar um fato específico, pode me pedir “Lembre que…” e dizer o que devo registrar.';
+    case 'failed':
+      return 'Posso usar memórias entre conversas. A análise da mensagem anterior ficou incompleta. Você pode pedir “Lembre que…” para registrar o fato explicitamente.';
+    default:
+      return undefined;
+  }
+}
 
 function memoryGuidance(runtime: LunaGenerateInput['context']['runtime'] | undefined) {
   if (runtime?.memoryEnabled === false) {
@@ -97,7 +118,7 @@ export class LunaService {
     return {
       response: {
         ...response,
-        content: ensureRegisteredWebCitations(response.content, input.toolExecutions),
+        content: previousMemoryReply(input) ?? ensureRegisteredWebCitations(response.content, input.toolExecutions),
       },
       combo: settings.llmCombo,
       promptMessages,
