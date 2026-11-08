@@ -8,7 +8,7 @@ export const MEMORY_RECALL_WINDOW_DAYS = 45;
 
 type FixedReason = 'fixada' | 'perfil' | 'recorrente';
 type Entry = { hit: MemoryHit; reason: FixedReason | 'busca' };
-export type FixedMemory = { items: Array<{ hit: MemoryHit; reason: FixedReason; chats: number }>; maxTokens?: number };
+export type FixedMemory = { items: Array<{ hit: MemoryHit; reason: FixedReason; chats: number }>; maxTokens?: number; disabled?: boolean };
 type Candidate = { hit: MemoryHit; pinned: boolean; kind: string; chats: number; requests: number };
 
 const identityFields = /^(nome|nome preferido|nome de preferencia|como chamar|pronome|pronomes)$/u;
@@ -49,19 +49,19 @@ function renderedTokens(entries: Entry[]) {
 function key({ id, revision }: MemoryHit) { return id + '/' + revision; }
 
 export function selectMemoryContext(
-  fixed: FixedMemory, executions: Array<{ result?: unknown }>, prompt: ChatMessage[], combo: string,
+  fixed: FixedMemory, executions: Array<{ result?: unknown }>, prompt: ChatMessage[], combo: string, maxOutput?: number | null,
 ) {
   const results = executions.flatMap(({ result }) =>
     result && typeof result === 'object' && 'memory' in result ? [result as MemoryResult] : []);
   const searches = results.filter(result => result.memory === 'search');
   const searched = new Set(searches.flatMap(result => result.items.map(key)));
   const local = combo !== 'paid-general';
-  const inputLimit = local ? 8192 - 1024 - 512 : 64000 - 4000 - 1000;
+  const inputLimit = local ? 8192 - Math.max(1024, maxOutput ?? 0) - 512 : 64000 - Math.max(4000, maxOutput ?? 0) - 1000;
   const promptTokens = prompt.reduce((sum, { role, content }) => sum + estimateContextTokens(role + ': ' + content), 0);
   const available = Math.max(0, inputLimit - promptTokens);
   const fixedBudget = Math.min(fixed.maxTokens ?? DEFAULT_FIXED_MEMORY_TOKENS, available, local ? 1024 : MAX_FIXED_MEMORY_TOKENS);
   const searchBudget = local ? 1024 : searches.length > 1 ? 4096 : 2048;
-  const totalBudget = Math.min(Math.max(fixedBudget, searchBudget), available);
+  const totalBudget = fixed.disabled ? 0 : Math.min(Math.max(fixedBudget, searchBudget), available);
   const entries: Entry[] = [];
   const base: Entry[] = [];
   const keys = new Set<string>();

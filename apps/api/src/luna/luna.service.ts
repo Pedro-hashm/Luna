@@ -177,6 +177,7 @@ export class LunaService {
     const recent = toRuntimeChatMessages(input.context.recentMessages);
     const { content, ...memory } = selectMemoryContext(
       input.context.memory ?? { items: [] }, input.toolExecutions, [...messages, ...recent], voiceSettings.llmCombo,
+      voiceSettings.llmMaxTokens,
     );
     if (content) messages.push({ role: 'user', content });
     return { promptMessages: [...messages, ...recent], memory };

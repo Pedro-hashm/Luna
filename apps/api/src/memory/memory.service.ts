@@ -51,8 +51,10 @@ export class MemoryService {
     const byKey = new Map(items.map(item => [item.key, item]));
     const date = formatApplicationDate(new Date(), await this.timeZone());
     const fixed = await this.fixed(date, settings);
-    const application = await this.prisma.applicationSettings.findFirst({ select: { llmCombo: true } });
-    const preview = selectMemoryContext(fixed, [], [], application?.llmCombo ?? '');
+    const application = await this.prisma.applicationSettings.findUnique({
+      where: { id: 1 }, select: { llmCombo: true, llmMaxTokens: true },
+    });
+    const preview = selectMemoryContext(fixed, [], [], application?.llmCombo ?? '', application?.llmMaxTokens);
     return {
       settings, items: items.map(({ key: _key, ...item }) => item),
       suggestions: suggestions.map(({ fingerprint: _fingerprint, itemKey, ...suggestion }) => {
@@ -219,7 +221,7 @@ export class MemoryService {
 
   async fixed(date: string, settings: Awaited<ReturnType<MemoryService['settings']>>): Promise<FixedMemory> {
     const maxTokens = settings.enabled ? settings.fixedContextMaxTokens : 0;
-    if (!maxTokens) return { items: [], maxTokens };
+    if (!maxTokens) return { items: [], maxTokens, disabled: !settings.enabled };
     const [items, activity] = await Promise.all([
       this.prisma.memoryItem.findMany({
         where: { scope: 'global', archived: false, allowModel: true, OR: [{ pinned: true }, { kind: { in: ['profile', 'preference'] } }] },
