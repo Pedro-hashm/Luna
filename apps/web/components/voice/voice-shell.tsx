@@ -541,7 +541,7 @@ export function VoiceShell({ conversationId, initialSessionId }: { conversationI
           playWakeChime();
         } else if (payload.type === "transcript" && typeof payload.text === "string") {
           dispatch({ type: "transcript", text: payload.text });
-          addEvent("Fala transcrita");
+          addEvent(payload.text ? "Fala transcrita" : "Nenhum comando de voz reconhecido");
         } else if (payload.type === "response" && typeof payload.text === "string") {
           dispatch({ type: "response", text: payload.text });
           addEvent("Resposta gerada");

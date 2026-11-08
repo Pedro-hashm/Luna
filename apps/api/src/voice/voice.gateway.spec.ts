@@ -8,9 +8,9 @@ describe('VoiceGateway wake idle', () => {
     expect(gateway['withoutWakeWord']('Luna, pesquisa por que a RAM aumentou.', 'Luna')).toBe('pesquisa por que a RAM aumentou.');
     expect(gateway['withoutWakeWord']('Luna.', 'Luna')).toBe('');
     expect(gateway['withoutWakeWord']('LUNAS Qual é a capital da Austrália?', 'Luna')).toBe('Qual é a capital da Austrália?');
-    expect(gateway['withoutWakeWord']('Qual é a capital da Austrália?', 'Luna')).toBe('');
-    expect(gateway['withoutWakeWord']('aluna está aqui', 'Luna')).toBe('');
-    expect(gateway['withoutWakeWord']('Lunaris, pesquisa por que a RAM aumentou.', 'Luna')).toBe('');
+    expect(gateway['withoutWakeWord']('Qual é a capital da Austrália?', 'Luna')).toBeUndefined();
+    expect(gateway['withoutWakeWord']('aluna está aqui', 'Luna')).toBeUndefined();
+    expect(gateway['withoutWakeWord']('Lunaris, pesquisa por que a RAM aumentou.', 'Luna')).toBeUndefined();
     expect(forSpeech('A RAM subiu ([Canaltech](https://example.com/a)). **Fonte**: https://example.com/b'))
       .toBe('A RAM subiu (Canaltech). Fonte:');
   });

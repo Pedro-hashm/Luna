@@ -78,6 +78,46 @@ describe('Voice WebSocket pipeline', () => {
     } finally { await test.stop(); }
   });
 
+  it.each([
+    { label: 'the wake word is in the full transcript', raw: 'Luna, primeira pergunta', prefix: undefined, expected: 'primeira pergunta' },
+    { label: 'only the activation clip confirms the wake word', raw: 'primeira pergunta', prefix: 'Luna.', expected: 'primeira pergunta' },
+    { label: 'neither transcription confirms the wake word', raw: 'primeira pergunta', prefix: 'Uma aluna.', expected: '' },
+    { label: 'there is only a wake word', raw: 'Luna.', prefix: undefined, expected: '' },
+    { label: 'the full transcript is empty', raw: '', prefix: undefined, expected: '' },
+  ])('publishes the correct Wake transcript when $label', async ({ raw, prefix, expected }) => {
+    const test = await harness('wake');
+    try {
+      test.wake.detect.mockResolvedValueOnce({ detected: true, score: 0.9, model: 'luna', timestamp: Date.now() });
+      test.stt.transcribe.mockResolvedValueOnce(raw).mockResolvedValue(prefix);
+      const activation = Buffer.alloc(2_560, 1);
+      const command = Buffer.alloc(32_000, 2);
+      const pcm = Buffer.concat([activation, command]);
+      test.socket.send(activation, { binary: true });
+      await waitUntil(() => test.messages.some((message) => message.state === 'listening'), 'wake listening');
+      test.socket.send(command, { binary: true });
+      test.socket.send(JSON.stringify({ type: 'listen.stop' }));
+
+      await waitUntil(() => test.messages.some((message) => message.type === 'transcript'), 'wake transcript');
+      expect(test.messages.find((message) => message.type === 'transcript')?.text).toBe(expected);
+      expect(test.stt.transcribe).toHaveBeenNthCalledWith(1, pcm);
+      expect(test.stt.transcribe).toHaveBeenCalledTimes(prefix === undefined ? 1 : 2);
+      if (prefix !== undefined) {
+        expect(test.stt.transcribe).toHaveBeenNthCalledWith(2, pcm.subarray(0, 17_920));
+      }
+      if (expected) {
+        await waitUntil(() => test.messages.some((message) => message.type === 'audio'), 'wake TTS');
+        expect(test.conversations.addMessageToConversation).toHaveBeenCalledTimes(1);
+        expect(test.conversations.addMessageToConversation).toHaveBeenCalledWith(
+          CONVERSATION_ID, expected, { inputMode: 'voice', outputMode: 'voice' },
+        );
+      } else {
+        await waitUntil(() => test.messages.at(-1)?.state === 'idle', 'wake rearmed');
+        expect(test.conversations.addMessageToConversation).not.toHaveBeenCalled();
+        expect(test.tts.synthesize).not.toHaveBeenCalled();
+      }
+    } finally { await test.stop(); }
+  });
+
   it('processes a repeated listen.stop only once', async () => {
     const test = await harness('live');
     try {

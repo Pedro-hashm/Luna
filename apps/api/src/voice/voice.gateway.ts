@@ -21,6 +21,7 @@ type VoiceClient = {
   wakeBuffer: Buffer[];
   wakeBytes: number;
   wakePreRoll: Buffer[];
+  wakePrefixBytes?: number;
   wakeBusy: boolean;
   lastWakeRejectAt: number;
   wakeThreshold: number;
@@ -152,6 +153,7 @@ export class VoiceGateway {
       if (client.mode === 'wake' && client.state === 'idle') return;
       if (client.state !== 'idle' && client.state !== 'wake_detected' && client.state !== 'listening') return;
       client.audio = []; client.audioBytes = 0; client.audioStarted = false;
+      client.wakePrefixBytes = undefined;
       await this.setState(client, 'listening');
       return;
     }
@@ -199,6 +201,7 @@ export class VoiceGateway {
       client.wakeKeyword = settings.wakeKeyword;
       client.wakeVerifier = { enabled: settings.wakeVerifierEnabled, model: settings.wakeVerifierModel, threshold: settings.wakeVerifierThreshold };
       client.audio = []; client.audioBytes = 0; client.wakeBuffer = []; client.wakeBytes = 0; client.wakePreRoll = [];
+      client.wakePrefixBytes = undefined;
       await this.wake.reset(client.sessionId, nextMode === 'live');
       await this.setState(client, client.mode === 'live' ? 'listening' : 'idle');
       if (client.mode === 'wake') await this.voice.event(client.sessionId, 'voice.wake.started', { provider: this.wake.name });
@@ -251,6 +254,8 @@ export class VoiceGateway {
           client.audio = [...client.wakePreRoll, tail];
           client.audioBytes = client.audio.reduce((total, item) => total + item.length, 0);
           client.audioStarted = true;
+          // Include 480 ms after detection in case the model fired before the keyword ended.
+          client.wakePrefixBytes = client.wakePreRoll.length * 2_560 + 15_360;
           client.wakePreRoll = [];
           await this.voice.event(client.sessionId, 'voice.wake.detected', { score: result.score, model: result.model, provider: this.wake.name, timestamp: result.timestamp });
           this.send(client, { type: 'wake.detected', ...result });
@@ -270,6 +275,8 @@ export class VoiceGateway {
 
   private async processUtterance(client: VoiceClient): Promise<void> {
     const pcm = Buffer.concat(client.audio);
+    const wakePrefixBytes = client.wakePrefixBytes;
+    client.wakePrefixBytes = undefined;
     client.audio = []; client.audioBytes = 0; client.audioStarted = false;
     // Lock the in-memory state before the first database write so a repeated
     // listen.stop cannot process the same utterance twice.
@@ -282,7 +289,21 @@ export class VoiceGateway {
     const sttStarted = Date.now();
     const rawTranscript = await this.stt.transcribe(pcm);
     if (generation !== client.generation) return;
-    const transcript = client.mode === 'wake' ? this.withoutWakeWord(rawTranscript, client.wakeKeyword) : rawTranscript;
+    let transcript = rawTranscript.trim();
+    if (client.mode === 'wake' && transcript) {
+      const command = this.withoutWakeWord(transcript, client.wakeKeyword);
+      if (command !== undefined) {
+        transcript = command;
+      } else if (wakePrefixBytes && wakePrefixBytes < pcm.length) {
+        // The full transcription can skip an isolated activation before a pause.
+        // Confirm it on the captured prefix before accepting the command.
+        const prefix = await this.stt.transcribe(pcm.subarray(0, wakePrefixBytes));
+        if (generation !== client.generation) return;
+        if (this.withoutWakeWord(prefix, client.wakeKeyword) === undefined) transcript = '';
+      } else {
+        transcript = '';
+      }
+    }
     await this.voice.event(client.sessionId, 'voice.stt.completed', { transcript, latencyMs: Date.now() - sttStarted });
     this.send(client, { type: 'transcript', text: transcript });
     if (!transcript) { await this.afterSilence(client); return; }
@@ -371,13 +392,13 @@ export class VoiceGateway {
     await this.wake.reset(client.sessionId);
   }
 
-  private withoutWakeWord(transcript: string, keyword: string): string {
+  private withoutWakeWord(transcript: string, keyword: string): string | undefined {
     const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     // A model score is only a candidate wake. Require Portuguese STT to confirm
     // the keyword before a candidate can submit anything to the conversation.
     // Whisper sometimes hears the isolated wake word as "Lunas".
     const boundary = new RegExp(`^\\s*${escaped}s?(?=$|[\\s,!.?:;])`, 'iu');
-    if (!boundary.test(transcript)) return '';
+    if (!boundary.test(transcript)) return undefined;
     const prefix = new RegExp(`^\\s*${escaped}s?(?:[\\s,!.?:;]+|$)`, 'iu');
     return transcript.replace(prefix, '').trim();
   }
