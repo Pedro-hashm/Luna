@@ -1,4 +1,5 @@
 import type { ChatMessage, LlmResponse } from "../llm/types/types";
+import type { PersonalityIdentity } from './personality.service';
 import type {
     OrchestratorContext,
     OrchestratorToolExecution,
@@ -14,4 +15,5 @@ export type LunaGenerateResult = {
     response: LlmResponse;
     combo: string;
     promptMessages: ChatMessage[];
+    personality: PersonalityIdentity;
 };

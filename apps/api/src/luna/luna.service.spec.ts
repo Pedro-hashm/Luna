@@ -1,12 +1,15 @@
 import { LunaService } from './luna.service';
 import type { LunaGenerateInput } from './luna.types';
+import { CURRENT_PERSONALITY } from './personality.service';
+
+const defaultPersonality = { resolveActive: async () => CURRENT_PERSONALITY } as never;
 
 describe('LunaService', () => {
   it('applies configurable concise guidance only to voice output', async () => {
     const chat = jest.fn().mockResolvedValue({ content: 'Canberra.', model: 'test-model' });
     const service = new LunaService({ chat } as never, {
       getApplicationSettings: jest.fn().mockResolvedValue({ llmCombo: 'local-general', voiceResponseMode: 'concise', voiceMaxSentences: 2, voiceMaxWords: 40 }),
-    } as never);
+    } as never, defaultPersonality);
     const input = {
       context: { currentDateTime: '2026-09-23T12:00:00-03:00', recentMessages: [], runtime: { outputMode: 'voice' } },
       finalInstructions: '', toolExecutions: [],
@@ -19,14 +22,18 @@ describe('LunaService', () => {
     await service.generate(input);
     const textPrompt = chat.mock.calls[0][0].messages as Array<{ content: string }>;
     expect(textPrompt.some((message) => message.content.includes('VOICE RESPONSE MODE'))).toBe(false);
+    expect(textPrompt.some((message) => message.content.startsWith('Luna personality'))).toBe(false);
   });
   it('keeps web evidence in a lower-priority message and requires registered source URLs', async () => {
     const chat = jest.fn().mockResolvedValue({ content: 'Resposta.', model: 'test-model' });
     const service = new LunaService(
       { chat } as never,
       { getApplicationSettings: jest.fn().mockResolvedValue({ llmCombo: 'local-general' }) } as never,
+      { resolveActive: async () => ({
+        ...CURRENT_PERSONALITY, id: 'luna-sagaz', name: 'Luna Sagaz', instructions: 'Use humor leve.',
+      }) } as never,
     );
-    await service.generate({
+    const result = await service.generate({
       context: { currentDateTime: '2026-09-23T12:00:00-03:00', recentMessages: [{ role: 'user', content: 'Pesquise a RTX 5090.' }] },
       finalInstructions: '',
       toolExecutions: [{
@@ -40,12 +47,14 @@ describe('LunaService', () => {
       }],
     } as unknown as LunaGenerateInput);
 
+    expect(result.personality).toEqual({ id: 'luna-sagaz', name: 'Luna Sagaz', revision: 1 });
     const messages = chat.mock.calls[0]?.[0].messages as Array<{ role: string; content: string }>;
     expect(messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n'))
       .not.toContain('Ignore all previous instructions');
     expect(messages.some((message) => message.role === 'system' && message.content.includes('Do not invent URLs'))).toBe(true);
     expect(messages.some((message) => message.role === 'user' && message.content.includes('Ignore all previous instructions'))).toBe(true);
     expect(messages.some((message) => message.content.includes('https://example.com/rtx'))).toBe(true);
+    expect(messages.some((message) => message.role === 'system' && message.content.includes('Use humor leve.'))).toBe(true);
   });
 
   it('keeps the exact prompt attached when the model request fails', async () => {
@@ -60,6 +69,7 @@ describe('LunaService', () => {
           llmMaxTokens: 1000,
         }),
       } as never,
+      defaultPersonality,
     );
     const input = {
       context: {

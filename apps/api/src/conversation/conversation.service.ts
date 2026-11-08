@@ -15,6 +15,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { formatApplicationDateTime } from '../time/application-time';
+import { PERSONALITY_PROMPT_PREFIX, type PersonalityIdentity } from '../luna/personality.service';
 import { ContextManagerService } from '../user-agent/context-manager/context-manager.service';
 import { EvidenceService } from '../evidence/evidence.service';
 import type { PublicConversationEvidence } from '../evidence/evidence.types';
@@ -261,6 +262,7 @@ export class ConversationService {
             ...initialSnapshot,
             promptTarget: failurePrompt.target,
             promptMessages: failurePrompt.messages,
+            personality: failurePrompt.personality,
           }
         : initialSnapshot;
 
@@ -391,14 +393,17 @@ export class ConversationService {
         chunkIndexing: chunkStageMs,
         'evidence.persist': evidenceStageMs,
       },
-      contextSnapshot: this.createContextSnapshot(
-        recentMessages,
-        execution.orchestrator.toolExecutions,
-        execution.orchestrator.finalInstructions,
-        execution.state.currentDateTime,
-        execution.luna.promptMessages,
-        evidenceTrace,
-      ),
+      contextSnapshot: {
+        ...this.createContextSnapshot(
+          recentMessages,
+          execution.orchestrator.toolExecutions,
+          execution.orchestrator.finalInstructions,
+          execution.state.currentDateTime,
+          execution.luna.promptMessages,
+          evidenceTrace,
+        ),
+        personality: execution.luna.personality,
+      },
       startedAt: traceStartedAt,
       completedAt: new Date(),
     });
@@ -497,10 +502,10 @@ export class ConversationService {
 
   private failurePromptSnapshot(
     error: unknown,
-  ): { target: 'luna'; messages: ChatMessage[] } | undefined {
+  ): { target: 'luna'; messages: ChatMessage[]; personality?: PersonalityIdentity } | undefined {
     if (!error || typeof error !== 'object') return undefined;
     const prompt = (error as {
-      observabilityPrompt?: { target?: unknown; messages?: unknown };
+      observabilityPrompt?: { target?: unknown; messages?: unknown; personality?: PersonalityIdentity };
     }).observabilityPrompt;
     if (
       prompt?.target !== 'luna' ||
@@ -515,7 +520,7 @@ export class ConversationService {
     ) {
       return undefined;
     }
-    return { target: 'luna', messages: prompt.messages as ChatMessage[] };
+    return { target: 'luna', messages: prompt.messages as ChatMessage[], personality: prompt.personality };
   }
 
   private getLunaPromptSections(promptMessages?: ChatMessage[]): {
@@ -566,6 +571,11 @@ export class ConversationService {
           label: 'Data/hora da iteração',
           content: message.content,
         });
+        continue;
+      }
+
+      if (message.content.startsWith(PERSONALITY_PROMPT_PREFIX)) {
+        system.push({ type: 'personality', label: 'Personalidade da Luna', content: message.content });
         continue;
       }
 

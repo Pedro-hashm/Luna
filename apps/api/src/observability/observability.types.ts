@@ -1,3 +1,5 @@
+import type { PersonalityIdentity } from '../luna/personality.service';
+
 export type ObservabilityMessage = {
   id?: string;
   role: string;
@@ -23,6 +25,7 @@ export type ContextSnapshot = {
   tools?: ContextPart;
   system?: ContextPart;
   orchestrator?: ContextPart;
+  personality?: PersonalityIdentity;
   promptTarget?: 'orchestrator' | 'luna';
   promptIteration?: number;
   promptMessages?: Array<Pick<ObservabilityMessage, 'role' | 'content'>>;

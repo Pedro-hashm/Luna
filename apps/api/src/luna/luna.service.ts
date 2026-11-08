@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import type { ApplicationSettings } from '@prisma/client';
 import { LlmService } from '../llm/llm.service';
 import type { ChatMessage, LlmResponse } from '../llm/types/types';
@@ -7,6 +7,13 @@ import { toToolExecutionModelView } from '../tools/tool-model-view';
 import type { LunaGenerateInput, LunaGenerateResult } from './luna.types';
 import { toRuntimeChatMessages } from '../user-agent/context-manager/runtime-context';
 import { ensureRegisteredWebCitations } from './web-citations';
+import { formatApplicationDateTime } from '../time/application-time';
+import {
+  PersonalityService,
+  personalityIdentity,
+  personalityPrompt,
+  type PersonalityDraft,
+} from './personality.service';
 
 const LUNA_BASE_PROMPT = `You are Luna, the final assistant layer for a personal assistant application.
 Reply directly and helpfully to the user's latest message.
@@ -22,14 +29,19 @@ const WEB_RESEARCH_PROMPT = `When web_research returns, use its evidence and sou
 
 @Injectable()
 export class LunaService {
+  private previewInProgress = false;
+
   constructor(
     private readonly llmService: LlmService,
     private readonly settingsService: SettingsService,
+    private readonly personalityService: PersonalityService,
   ) {}
 
   async generate(input: LunaGenerateInput): Promise<LunaGenerateResult> {
     const settings = await this.settingsService.getApplicationSettings();
-    const promptMessages = this.buildPromptMessages(input, settings);
+    const preset = await this.personalityService.resolveActive(settings.activePersonalityPresetId);
+    const personality = personalityIdentity(preset);
+    const promptMessages = this.buildPromptMessages(input, settings, preset);
     let response: LlmResponse;
     try {
       response = await this.llmService.chat({
@@ -42,12 +54,12 @@ export class LunaService {
       let promptError = error instanceof Error ? error : new Error(String(error));
       try {
         Object.assign(promptError, {
-          observabilityPrompt: { target: 'luna', messages: promptMessages },
+          observabilityPrompt: { target: 'luna', messages: promptMessages, personality },
         });
       } catch {
         promptError = new Error(promptError.message, { cause: promptError });
         Object.assign(promptError, {
-          observabilityPrompt: { target: 'luna', messages: promptMessages },
+          observabilityPrompt: { target: 'luna', messages: promptMessages, personality },
         });
       }
       throw promptError;
@@ -60,10 +72,53 @@ export class LunaService {
       },
       combo: settings.llmCombo,
       promptMessages,
+      personality,
     };
   }
 
-  private buildPromptMessages(input: LunaGenerateInput, voiceSettings: ApplicationSettings): ChatMessage[] {
+  async previewPersonality(message: string, draft: PersonalityDraft) {
+    if (this.previewInProgress) {
+      throw new ConflictException('Aguarde a prévia em andamento.');
+    }
+    this.previewInProgress = true;
+    try {
+      const settings = await this.settingsService.getApplicationSettings();
+      const active = await this.personalityService.resolveActive(settings.activePersonalityPresetId);
+      const currentDateTime = formatApplicationDateTime(new Date(), settings.appTimezone);
+      const input = {
+        context: {
+          currentDateTime,
+          recentMessages: [{ id: 'preview', role: 'user', content: message, createdAt: currentDateTime }],
+          runtime: { outputMode: 'text' },
+        },
+        finalInstructions: '',
+        toolExecutions: [],
+      } satisfies Parameters<LunaService['buildPromptMessages']>[0];
+      const signal = AbortSignal.timeout(60_000);
+      const respond = async (preset: PersonalityDraft) => {
+        const response = await this.llmService.chat({
+          combo: settings.llmCombo,
+          messages: this.buildPromptMessages(input, settings, preset),
+          temperature: settings.llmTemperature ?? undefined,
+          maxTokens: Math.min(settings.llmMaxTokens ?? 400, 400),
+          signal,
+        });
+        return { name: preset.name, text: response.content, model: response.model };
+      };
+      const activeResponse = await respond(active);
+      return { active: activeResponse, draft: await respond(draft) };
+    } finally {
+      this.previewInProgress = false;
+    }
+  }
+
+  private buildPromptMessages(
+    input: Pick<LunaGenerateInput, 'finalInstructions' | 'toolExecutions'> & {
+      context: Pick<LunaGenerateInput['context'], 'currentDateTime' | 'recentMessages' | 'runtime'>;
+    },
+    voiceSettings: ApplicationSettings,
+    preset: PersonalityDraft,
+  ): ChatMessage[] {
     const messages: ChatMessage[] = [
       { role: 'system', content: LUNA_BASE_PROMPT },
       {
@@ -71,6 +126,9 @@ export class LunaService {
         content: `Current iteration time in the application timezone: ${input.context.currentDateTime}`,
       },
     ];
+
+    const style = personalityPrompt(preset);
+    if (style) messages.push({ role: 'system', content: style });
 
     if (input.context.runtime?.outputMode === 'voice' && (voiceSettings.voiceResponseMode ?? 'concise') === 'concise') {
       const maxSentences = voiceSettings.voiceMaxSentences ?? 3;
