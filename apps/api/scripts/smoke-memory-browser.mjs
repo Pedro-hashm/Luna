@@ -10,6 +10,14 @@ try {
   await page.goto('/settings');
   await page.getByRole('link', { name: /Memórias da Luna/ }).click();
   await page.getByRole('heading', { name: 'Memórias da Luna' }).waitFor();
+  const limit = page.getByRole('spinbutton', { name: 'Limite em tokens' });
+  await limit.fill('321');
+  await page.getByRole('button', { name: 'Salvar limite' }).click();
+  await page.getByRole('status').filter({ hasText: 'Configuração salva' }).waitFor();
+  assert.equal((await (await page.request.get('/api/memory')).json()).settings.fixedContextMaxTokens, 321);
+  await limit.fill('512');
+  await page.getByRole('button', { name: 'Salvar limite' }).click();
+  await page.getByRole('status').filter({ hasText: 'Configuração salva' }).waitFor();
   await page.getByRole('button', { name: 'Nova memória', exact: true }).click();
   await page.getByRole('textbox', { name: 'Assunto', exact: true }).fill('Projeto UI');
   await page.getByRole('textbox', { name: 'Relação', exact: true }).fill('nome');

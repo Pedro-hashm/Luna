@@ -583,13 +583,17 @@ function Inspector({
                   <div className="mt-4 space-y-2">{Object.entries(activeTrace.stages).map(([stage, value]) => <div className="flex items-center justify-between text-[11px] text-slate-500" key={stage}><span>{stageLabel(stage)}</span><span className="font-semibold text-slate-700">{formatDuration(value)}</span></div>)}</div>
                 </div>
               </div>
-              {activeTrace.context.memory?.items?.length ? (
+              {activeTrace.context.memory?.items?.length || activeTrace.context.memory?.totalBudget !== undefined ? (
                 <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/75 p-3 text-xs">
                   <span className="font-semibold text-indigo-900">Memórias consideradas</span>
-                  {activeTrace.context.memory.items.flatMap((item, index) => {
+                  {activeTrace.context.memory.totalBudget !== undefined && <span className="text-indigo-800">
+                    {activeTrace.context.memory.tokens} de {activeTrace.context.memory.totalBudget} tokens · base até {activeTrace.context.memory.fixedBudget}
+                  </span>}
+                  {activeTrace.context.memory.items?.flatMap((item, index) => {
                     if (!item || typeof item !== "object" || !("id" in item) || typeof item.id !== "string") return [];
                     const revision = "revision" in item && typeof item.revision === "number" ? item.revision : null;
-                    const reason = "reason" in item && item.reason === "fixada" ? "Fixada" : "Busca";
+                    const labels: Record<string, string> = { fixada: "Prioridade manual", perfil: "Perfil", recorrente: "Recorrente", busca: "Busca" };
+                    const reason = "reason" in item && typeof item.reason === "string" ? labels[item.reason] ?? "Busca" : "Busca";
                     return [<Link key={item.id + "/" + index} className="rounded-lg bg-white/90 px-2 py-1 font-medium text-indigo-700 hover:underline"
                       href={"/settings/memory?item=" + encodeURIComponent(item.id)}>{reason}{revision ? " · rev. " + revision : ""}</Link>];
                   })}

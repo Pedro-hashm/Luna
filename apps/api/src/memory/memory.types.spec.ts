@@ -1,6 +1,7 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
-import { day, isChatOnlyMemoryRequest, isExplicitMemorySave, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, selectMemoryContext, type MemoryHit } from './memory.types';
+import { rankFixedMemory, selectMemoryContext } from './memory-context';
+import { day, isChatOnlyMemoryRequest, isExplicitMemorySave, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, type MemoryHit } from './memory.types';
 
 describe('personal memory boundaries', () => {
   it('normalizes a fact key without collapsing distinct scopes', () => {
@@ -49,9 +50,48 @@ describe('personal memory boundaries', () => {
       scope: 'global', value: 'Boreal Desk', validFrom: null, validTo: null,
     };
     const search = { result: { memory: 'search', items: [hit] } };
-    expect(selectMemoryContext([hit], [search])).toEqual([{ hit, reason: 'fixada' }]);
-    expect(selectMemoryContext([hit], [search, { result: { memory: 'forget', items: [], outcome: 'forgotten' } }])).toEqual([]);
+    const fixed = { items: [{ hit, reason: 'fixada' as const, chats: 0 }] };
+    expect(selectMemoryContext(fixed, [search], [], 'paid-general')).toMatchObject({
+      items: [{ id: 'test', revision: 1, reason: 'fixada' }], recalls: [{ id: 'test', revision: 1 }],
+    });
+    expect(selectMemoryContext(fixed, [search, { result: { memory: 'forget', items: [], outcome: 'forgotten' } }], [], 'paid-general'))
+      .toMatchObject({ items: [], recalls: [], tokens: 0 });
     expect(JSON.stringify(redactMemoryPrompt([{ role: 'user', content: 'Personal memory data for this reply: Boreal Desk' }])))
       .not.toContain('Boreal Desk');
+  });
+
+  it('prioritizes explicit pins, stable profile facts and independently recalled preferences', () => {
+    const hit = (id: string, predicate: string): MemoryHit => ({
+      id, predicate, subject: 'Usuário', scope: 'global', value: 'Exemplo', revision: 1, validFrom: null, validTo: null,
+    });
+    const ranked = rankFixedMemory([
+      { hit: hit('repeat', 'tema'), kind: 'preference', pinned: false, chats: 12, requests: 1 },
+      { hit: hit('frequent', 'editor padrão'), kind: 'preference', pinned: false, chats: 3, requests: 2 },
+      { hit: hit('project', 'versão do PostgreSQL'), kind: 'project', pinned: false, chats: 12, requests: 8 },
+      { hit: hit('name', 'nome preferido'), kind: 'profile', pinned: false, chats: 0, requests: 0 },
+      { hit: hit('pinned', 'hobby'), kind: 'profile', pinned: true, chats: 0, requests: 0 },
+    ]);
+    expect(ranked.map(({ hit, reason }) => [hit.id, reason])).toEqual([
+      ['pinned', 'fixada'], ['name', 'perfil'], ['frequent', 'recorrente'],
+    ]);
+  });
+
+  it('packs whole records within the serialized budget after other prompt content', () => {
+    const hit: MemoryHit = {
+      id: 'profile', revision: 1, subject: 'Usuário', predicate: 'nome',
+      scope: 'global', value: 'Aurora', validFrom: null, validTo: null,
+    };
+    const fixed = { maxTokens: 100, items: [
+      { hit: { ...hit, id: 'large', value: 'a'.repeat(400) }, reason: 'fixada' as const, chats: 0 },
+      { hit, reason: 'perfil' as const, chats: 0 },
+    ] };
+    expect(selectMemoryContext(fixed, [], [], 'paid-general')).toMatchObject({
+      items: [{ id: 'profile', revision: 1, reason: 'perfil' }], recalls: [],
+    });
+    const search = { result: { memory: 'search', items: [hit] } };
+    expect(selectMemoryContext({ ...fixed, maxTokens: 0 }, [search], [], 'local-general'))
+      .toMatchObject({ items: [{ id: 'profile', reason: 'busca' }], fixedBudget: 0 });
+    expect(selectMemoryContext(fixed, [search], [{ role: 'system', content: 'x'.repeat(26_620) }], 'local-general'))
+      .toMatchObject({ items: [], totalBudget: 0, tokens: 0, recalls: [] });
   });
 });

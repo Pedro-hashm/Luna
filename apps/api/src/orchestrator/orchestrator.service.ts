@@ -540,7 +540,7 @@ export class OrchestratorService {
     };
 
     const memoryGuidance = tools.some(tool => tool.name === 'memory_search')
-      ? '\n\nMemória pessoal: para fatos vigentes ou preferências da pessoa, prefira memory_search quando o contexto imediato for insuficiente. Para localizar o que foi dito numa conversa, use conversation_retrieval. Use query com o assunto e o tipo do fato, por exemplo "residência". Uma informação explícita do turno atual tem prioridade. Se o usuário pediu lembrar, corrigir ou esquecer e a ferramenta correspondente foi oferecida, faça a operação antes de finalizar. O valor e a citação devem ser literais no pedido. Resultados pessoais da busca de memórias são encaminhados somente à resposta final.'
+      ? '\n\nMemória pessoal: use memory_search quando faltar um fato pessoal ou uma preferência que mudaria a resposta, mesmo que o pedido não diga "memória". Por exemplo, "me ajude a instalar esta extensão no meu editor" pede a consulta "editor padrão" se o editor não estiver no contexto imediato. Uma pergunta geral que independe da pessoa dispensa consulta. Para localizar o que foi dito numa conversa, use conversation_retrieval. Use query com o assunto e o tipo do fato, por exemplo "residência". Uma informação explícita do turno atual tem prioridade. Se o usuário pediu lembrar, corrigir ou esquecer e a ferramenta correspondente foi oferecida, faça a operação antes de finalizar. O valor e a citação devem ser literais no pedido. Resultados pessoais da busca de memórias são encaminhados somente à resposta final.'
       : '';
     const webResults = toolExecutions
       .filter((execution) => execution.tool === 'web_research')

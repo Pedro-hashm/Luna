@@ -358,7 +358,7 @@ export interface ConversationInspector {
     stages: Record<string, number>;
     context: {
       immediate?: ContextPart;
-      memory?: ContextPart;
+      memory?: ContextPart & { fixedBudget?: number; totalBudget?: number };
       tools?: ContextPart;
       system?: ContextPart;
       orchestrator?: ContextPart;

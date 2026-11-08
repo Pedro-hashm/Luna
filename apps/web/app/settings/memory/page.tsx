@@ -105,8 +105,8 @@ export default function MemoryPage() {
 
   function changeSettings(change: Partial<MemorySettings>) {
     void action("Salvando configuração…", async () => {
-      const settings = await configureMemory(change);
-      setData(current => current && { ...current, settings });
+      await configureMemory(change);
+      setData(await listMemories());
       setNotice("Configuração salva.");
     });
   }
@@ -156,6 +156,32 @@ export default function MemoryPage() {
         {!data && !error && <p role="status">Carregando memórias…</p>}
         {data && (
           <fieldset disabled={Boolean(busy)} className="min-w-0 space-y-5">
+            <section className="glass rounded-3xl p-5" aria-labelledby="fixed-memory-title">
+              <h2 id="fixed-memory-title" className="font-semibold text-slate-900">Memória fixa</h2>
+              <p className="mt-1 text-sm text-slate-600">A Luna seleciona automaticamente dados gerais do perfil e memórias consultadas em vários chats. Você define o espaço disponível.</p>
+              <form className="mt-3 flex flex-wrap items-end gap-3" onSubmit={event => {
+                event.preventDefault();
+                changeSettings({ fixedContextMaxTokens: Number(new FormData(event.currentTarget).get("tokens")) });
+              }}>
+                <label className="w-40 text-sm">Limite em tokens
+                  <input key={data.settings.fixedContextMaxTokens} name="tokens" type="number" min={0} max={4096} step={1} required
+                    defaultValue={data.settings.fixedContextMaxTokens} className={field} />
+                </label>
+                <button type="submit" className={button}>Salvar limite</button>
+              </form>
+              <p className="mt-3 text-sm text-slate-700">{data.fixed.tokens} de {data.fixed.effectiveLimit} tokens estimados na base. Use 0 para consultar memórias apenas quando necessário.</p>
+              {data.fixed.items.length > 0 && (
+                <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                  {data.fixed.items.map(item => <li key={item.id}>
+                    <button type="button" className="font-medium text-indigo-800 hover:underline" onClick={() => open(item.id)}>
+                      {item.subject} · {item.predicate}
+                    </button>
+                    {" · "}{item.reason === "fixada" ? "Prioridade manual" : item.reason === "perfil" ? "Dado geral do perfil" : `Consultada em ${item.chats} chats`}
+                    {!item.included && " · Disponível por busca"}
+                  </li>)}
+                </ul>
+              )}
+            </section>
             <details className="glass rounded-3xl p-5">
               <summary className="cursor-pointer font-semibold text-slate-900">Como a Luna usa e aprende memórias</summary>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -272,7 +298,7 @@ export default function MemoryPage() {
                     O modelo configurado pode receber este conteúdo se for relevante.
                   </Setting>
                   <Setting label="Sempre considerar" disabled={!editor.allowModel || editor.draft.scope !== "global"} checked={editor.pinned && editor.draft.scope === "global"}
-                    change={value => setEditor({ ...editor, pinned: value })}>Fixa este item global no contexto. A Luna seleciona até três itens fixados.</Setting>
+                    change={value => setEditor({ ...editor, pinned: value })}>Dá prioridade a este item global dentro do orçamento da memória fixa.</Setting>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button className={primary} type="button" disabled={!editor.draft.value.trim() || !editor.draft.subject.trim() || !editor.draft.predicate.trim()} onClick={() => save()}>{editor.suggestion ? "Aprovar memória" : "Salvar memória"}</button>

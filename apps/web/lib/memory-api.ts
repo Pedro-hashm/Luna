@@ -10,7 +10,7 @@ export type MemoryDraft = {
   validFrom: string | null;
   operation: "add" | "change" | "correct";
 };
-export type MemorySettings = { enabled: boolean; suggestionsEnabled: boolean; allowExplicitUse: boolean };
+export type MemorySettings = { enabled: boolean; suggestionsEnabled: boolean; allowExplicitUse: boolean; fixedContextMaxTokens: number };
 export type MemorySource = { id: string; quote: string; message: { conversationId: string; createdAt: string } };
 export type MemoryRevision = {
   id: string; number: number; value: string; validFrom: string | null; validTo: string | null;
@@ -27,6 +27,11 @@ export type MemorySuggestion = {
 export type MemoryDashboard = {
   settings: MemorySettings; items: MemoryItem[]; suggestions: MemorySuggestion[];
   queue: { pending: number; failed: number };
+  fixed: {
+    tokens: number;
+    effectiveLimit: number;
+    items: Array<{ id: string; subject: string; predicate: string; reason: "fixada" | "perfil" | "recorrente"; chats: number; included: boolean }>;
+  };
 };
 
 const root = "/api/memory";

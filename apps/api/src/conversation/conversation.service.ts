@@ -9,7 +9,7 @@ import { MessageRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { MemoryService } from '../memory/memory.service';
-import { MEMORY_PROMPT_PREFIX, redactMemoryExecution, redactMemoryPrompt, selectMemoryContext } from '../memory/memory.types';
+import { redactMemoryExecution, redactMemoryPrompt } from '../memory/memory.types';
 import type { ChatMessage } from '../llm/types/types';
 import { ObservabilityService } from '../observability/observability.service';
 import type {
@@ -302,7 +302,7 @@ export class ConversationService {
       outputMode,
     };
     const assistantMessage = this.memory
-      ? await this.memory.persistAnswer(data, userMessage.id)
+      ? await this.memory.persistAnswer(data, userMessage.id, userMessage.content, execution.luna.memory.recalls)
       : await this.prisma.message.create({ data });
     const persistenceStageMs = Date.now() - persistenceStartedAt;
 
@@ -410,11 +410,10 @@ export class ConversationService {
         ),
         personality: execution.luna.personality,
         memory: {
-          items: selectMemoryContext(execution.state.memory.items, execution.orchestrator.toolExecutions)
-            .map(({ hit, reason }) => ({ id: hit.id, revision: hit.revision, reason })),
-          tokens: this.contextManager.estimateTokens(execution.luna.promptMessages
-            .filter(message => message.content.startsWith(MEMORY_PROMPT_PREFIX))
-            .map(message => message.content).join('\n')),
+          items: execution.luna.memory.items,
+          tokens: execution.luna.memory.tokens,
+          fixedBudget: execution.luna.memory.fixedBudget,
+          totalBudget: execution.luna.memory.totalBudget,
         },
       },
       startedAt: traceStartedAt,

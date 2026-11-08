@@ -21,7 +21,7 @@ export type ContextPart = {
 
 export type ContextSnapshot = {
   immediate?: ContextPart;
-  memory?: ContextPart;
+  memory?: ContextPart & { fixedBudget?: number; totalBudget?: number };
   tools?: ContextPart;
   system?: ContextPart;
   orchestrator?: ContextPart;

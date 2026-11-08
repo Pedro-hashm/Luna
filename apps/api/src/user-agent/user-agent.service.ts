@@ -22,7 +22,6 @@ export class UserAgentService {
     if (this.memory) {
       const settings = await this.memory.settings();
       state.runtime.memoryEnabled = settings.enabled;
-      if (settings.enabled) state.memory.items = await this.memory.pinned(initial.currentDateTime.slice(0, 10));
     }
     const orchestratorStartedAt = Date.now();
     const orchestrator = await this.orchestratorService.execute({
@@ -37,6 +36,10 @@ export class UserAgentService {
       runtime: state.runtime,
     });
     const orchestratorMs = Date.now() - orchestratorStartedAt;
+    if (this.memory && state.runtime.memoryEnabled) {
+      state.memory = await this.memory.fixed(initial.currentDateTime.slice(0, 10), await this.memory.settings());
+      orchestrator.context.memory = state.memory;
+    }
     const lunaStartedAt = Date.now();
     const luna = await this.lunaService.generate({
       context: orchestrator.context,
