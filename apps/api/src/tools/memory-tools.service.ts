@@ -15,16 +15,20 @@ export class MemoryTools implements OnModuleInit {
   onModuleInit() {
     this.registry.register({
       name: 'memory_search',
-      description: 'Consulta fatos pessoais e preferências já confirmados e autorizados, vigentes na data pedida. Use conversation_retrieval para localizar o que foi dito no histórico.',
+      description: 'Consulta fatos pessoais e preferências já confirmados e autorizados, vigentes na data pedida. Quando disponível, use conversation_retrieval para localizar o que foi dito no histórico.',
       inputSchema: { type: 'object', additionalProperties: false, properties: {
         query: text, date: { type: 'string', description: 'AAAA-MM-DD, omita para hoje' },
         scope: { type: 'string', description: 'global ou o nome do projeto explicitamente mencionado neste turno' },
       } },
       execute: async (input, context) => {
-        const { messageId } = this.runtime(context);
-        const scope = input.scope ? bounded(input.scope, 'Escopo', 80) : 'global';
+        const { messageId, memoryScope } = this.runtime(context);
+        const requestedScope = input.scope ? bounded(input.scope, 'Escopo', 100) : undefined;
+        if (memoryScope !== 'global' && requestedScope && requestedScope !== memoryScope) {
+          throw new ToolArgumentException('scope', 'Só é possível consultar memórias desta pessoa.');
+        }
+        const scope = memoryScope !== 'global' ? memoryScope : requestedScope ?? 'global';
         const current = context.messages.find(message => message.id === messageId && message.role === 'user');
-        if (scope !== 'global' && !normal(current?.content ?? '').includes(normal(scope))) {
+        if (memoryScope === 'global' && scope !== 'global' && !normal(current?.content ?? '').includes(normal(scope))) {
           throw new ToolArgumentException('scope', 'O escopo precisa estar explícito no pedido.');
         }
         return this.memory.search(bounded(input.query, 'Consulta', 300), day(input.date) ?? context.currentDateTime!.slice(0, 10), scope);
@@ -39,8 +43,10 @@ export class MemoryTools implements OnModuleInit {
         operation: { type: 'string', enum: MEMORY_OPERATIONS },
       } },
       execute: async (input, context) => {
-        const { messageId, conversationId } = this.runtime(context);
-        return this.memory.explicitSave(input, messageId, conversationId);
+        const { messageId, conversationId, memoryScope } = this.runtime(context);
+        return this.memory.explicitSave(
+          input, messageId, conversationId, memoryScope === 'global' ? undefined : memoryScope,
+        );
       },
     });
     this.registry.register({
@@ -48,8 +54,8 @@ export class MemoryTools implements OnModuleInit {
       description: 'Remove uma memória quando o usuário pede explicitamente para esquecê-la. A ferramenta identifica o alvo pelo texto original do pedido.',
       inputSchema: { type: 'object', additionalProperties: false, properties: {} },
       execute: async (_input, context) => {
-        const { messageId, conversationId } = this.runtime(context);
-        return this.memory.explicitForget(messageId, conversationId);
+        const { messageId, conversationId, memoryScope } = this.runtime(context);
+        return this.memory.explicitForget(messageId, conversationId, memoryScope);
       },
     });
   }
@@ -58,6 +64,10 @@ export class MemoryTools implements OnModuleInit {
     if (!context.currentMessageId || !context.conversationId || !context.currentDateTime) {
       throw new ToolRuntimeContextException('A memória exige um turno de conversa.');
     }
-    return { messageId: context.currentMessageId, conversationId: context.conversationId };
+    return {
+      messageId: context.currentMessageId,
+      conversationId: context.conversationId,
+      memoryScope: context.memoryScope ?? 'global',
+    };
   }
 }

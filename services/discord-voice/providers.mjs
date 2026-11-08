@@ -68,8 +68,8 @@ function postJson(body) {
 export function createProviders(env = process.env) {
   const wake = localBase(env.WAKEWORD_BASE_URL || 'http://wakeword:8765');
   const speech = localBase(env.SPEACHES_BASE_URL || 'http://speaches:8000');
-  const ollama = localBase(env.OLLAMA_BASE_URL || 'http://ollama:11434');
-  const kokoro = localBase(env.KOKORO_BASE_URL || 'http://kokoro:8000');
+  const api = localBase(env.LUNA_API_URL || 'http://api:8000');
+  const secret = (env.DISCORD_VOICE_WORKER_SECRET || '').trim();
   const threshold = Number(env.LUNA_DISCORD_WAKE_THRESHOLD || '0.65');
   if (!Number.isFinite(threshold) || threshold < 0.5 || threshold > 1) throw new Error('Invalid Wake threshold');
 
@@ -98,30 +98,21 @@ export function createProviders(env = process.env) {
       if (typeof text !== 'string') throw new Error('stt');
       return text.trim().slice(0, 1_200);
     },
-    async answer(text, history, signal) {
-      const response = await request('llm', ollama + '/api/chat', postJson({
-        model: env.LUNA_DISCORD_OLLAMA_MODEL || 'qwen3:4b-instruct',
-        stream: false,
-        think: false,
-        options: { num_ctx: 2048, num_predict: 144 },
-        messages: [
-          { role: 'system', content: 'Você é Luna, uma assistente numa call compartilhada. Responda em português, com linguagem natural de voz e até três frases curtas. Use apenas o contexto desta conversa. Evite ler credenciais ou informações íntimas em voz alta.' },
-          ...history,
-          { role: 'user', content: text },
-        ],
-      }), signal, 45_000);
-      const result = (await response.json()).message?.content;
-      if (typeof result !== 'string' || !result.trim()) throw new Error('llm');
-      return result.trim().slice(0, 420);
-    },
-    async synthesize(text, signal) {
-      const response = await request('tts', kokoro + '/v1/audio/speech', postJson({
-        model: 'kokoro',
-        input: text,
-        voice: env.LUNA_DISCORD_KOKORO_VOICE || 'pf_dora',
-        response_format: 'wav',
-      }), signal, 30_000);
-      return Buffer.from(await response.arrayBuffer());
+    async answer(text, context, signal) {
+      if (!secret) throw new Error('worker_auth');
+      const response = await request('turn', api + '/discord-voice/worker/turn', {
+        ...postJson({
+          guildId: context.guildId,
+          userId: context.userId,
+          sessionId: context.conversationSessionId,
+          username: context.username,
+          transcript: text,
+        }),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + secret },
+      }, signal, 180_000);
+      const audio = Buffer.from(await response.arrayBuffer());
+      if (!audio.length || audio.length > 24 * 1024 * 1024) throw new Error('turn_audio');
+      return audio;
     },
   };
 }

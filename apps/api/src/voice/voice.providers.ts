@@ -18,7 +18,7 @@ async function requestProvider(provider: string, url: string, init: RequestInit)
   }
 }
 
-export function pcm16ToWav(pcm16: Buffer): Buffer {
+export function pcm16ToWav(pcm16: Buffer, sampleRate = 16_000): Buffer {
   const header = Buffer.alloc(44);
   header.write('RIFF', 0);
   header.writeUInt32LE(36 + pcm16.length, 4);
@@ -26,8 +26,8 @@ export function pcm16ToWav(pcm16: Buffer): Buffer {
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(1, 20);
   header.writeUInt16LE(1, 22);
-  header.writeUInt32LE(16000, 24);
-  header.writeUInt32LE(32000, 28);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
   header.writeUInt16LE(2, 32);
   header.writeUInt16LE(16, 34);
   header.write('data', 36);

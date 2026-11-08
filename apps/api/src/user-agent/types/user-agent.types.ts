@@ -24,6 +24,8 @@ export type UserAgentInitialState = {
   currentDateTime: string;
   recentMessages: RuntimeMessage[];
   outputMode?: 'text' | 'voice';
+  memoryScope?: string;
+  conversationSource?: string;
 };
 
 export type UserAgentState = UserAgentInitialState & {

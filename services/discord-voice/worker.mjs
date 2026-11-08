@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import {
   ChannelType, Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits,
@@ -20,6 +21,7 @@ const commands = new SlashCommandBuilder()
   .setName('luna')
   .setDescription('Usa a Luna no canal de voz configurado')
   .addSubcommand(command => command.setName('entrar').setDescription('Conecta a Luna ao canal de voz'))
+  .addSubcommand(command => command.setName('perguntar').setDescription('Toca o bip e escuta uma pergunta sua'))
   .addSubcommand(command => command.setName('participar').setDescription('Autoriza escuta temporária para chamar a Luna'))
   .addSubcommand(command => command.setName('parar').setDescription('Encerra sua participação e apaga seu contexto da call'))
   .addSubcommand(command => command.setName('sair').setDescription('Desconecta a Luna do canal de voz'));
@@ -213,13 +215,15 @@ async function join(channel) {
   });
   const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Stop } });
   player.on('error', () => log('discord_playback_error'));
+  let current;
   const room = new VoiceRoom({
     providers, log,
     playCue: signal => play(player, cue, StreamType.Raw, signal),
     playReply: (audio, signal) => play(player, audio, StreamType.Arbitrary, signal),
     stopPlayback: () => player.stop(true),
+    onTemporaryEnd: userId => { if (current) stopStream(current, userId); },
   });
-  const current = { connection, player, room, streams: new Map(), timer: setInterval(() => room.tick(), 100) };
+  current = { callId: randomUUID(), connection, player, room, streams: new Map(), timer: setInterval(() => room.tick(), 100) };
   session = current;
   connection.subscribe(player);
   connection.receiver.speaking.on('start', userId => {
@@ -299,7 +303,7 @@ async function handleCommand(interaction) {
       return;
     }
     await join(selected);
-    await interaction.editReply('A Luna entrou. Cada pessoa que quiser falar com ela pode usar /luna participar.');
+    await interaction.editReply('A Luna entrou. Use /luna perguntar para um turno ou /luna participar para ativar o wake word.');
     return;
   }
   const current = session;
@@ -312,13 +316,42 @@ async function handleCommand(interaction) {
     await reply('Sua participação terminou e seu contexto temporário foi apagado.');
     return;
   }
+  if (command === 'perguntar' && !interaction.user.bot) {
+    if (current.room.turn) {
+      await reply('A Luna já está respondendo a outra pessoa. Tente novamente em instantes.');
+      return;
+    }
+    const alreadyParticipating = current.room.has(interaction.user.id);
+    const requestContext = {
+      guildId: interaction.guildId,
+      conversationSessionId: current.callId,
+      username: interaction.user.globalName || interaction.user.username,
+    };
+    if (!current.room.add(interaction.user.id, { requestContext, temporary: true })) {
+      await reply('A call já tem quatro participantes ativos. Tente novamente quando houver uma vaga.');
+      return;
+    }
+    if (!current.room.listenOnce(interaction.user.id, requestContext)) {
+      if (!alreadyParticipating) dropParticipant(current, interaction.user.id);
+      await reply('Já existe outro turno em andamento. Tente novamente em instantes.');
+      return;
+    }
+    subscribe(current, interaction.user.id);
+    await reply('A Luna vai tocar o bip e ouvir seu próximo turno. Sua transcrição e a resposta serão salvas na interface local da Luna; todos na call ouvirão a resposta.');
+    return;
+  }
   if (command !== 'participar' || interaction.user.bot) return;
-  if (!current.room.add(interaction.user.id)) {
+  const requestContext = {
+    guildId: interaction.guildId,
+    conversationSessionId: current.callId,
+    username: interaction.user.globalName || interaction.user.username,
+  };
+  if (!current.room.add(interaction.user.id, { requestContext })) {
     await reply('O piloto aceita até quatro participantes por call. Tente quando houver uma vaga.');
     return;
   }
   subscribe(current, interaction.user.id);
-  await reply('Sua escuta temporária está ativa. Diga “Luna” para chamar. Todos ouvem o sinal e a resposta. O áudio e o contexto ficam em RAM até você sair ou usar /luna parar.');
+  await reply('Sua escuta temporária está ativa. Diga “Luna” para chamar. Cada fala transcrita e resposta será salva na interface local da Luna; todos na call ouvem o bip e a resposta. O áudio bruto não é salvo. Use /luna parar para sair.');
 }
 
 client.on(Events.Error, () => log('discord_client_error'));

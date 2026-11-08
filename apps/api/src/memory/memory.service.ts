@@ -299,16 +299,18 @@ export class MemoryService {
     });
   }
 
-  async explicitSave(body: Record<string, unknown>, messageId: string, conversationId: string): Promise<MemoryResult> {
+  async explicitSave(
+    body: Record<string, unknown>, messageId: string, conversationId: string, enforcedScope?: string,
+  ): Promise<MemoryResult> {
     const message = await this.source(messageId, conversationId);
     const settings = await this.settings();
     if (!settings.enabled || !isExplicitMemorySave(message.content)) throw new BadRequestException('Peça explicitamente para lembrar ou corrigir.');
-    const draft = readDraft(body);
+    const draft = readDraft(enforcedScope && enforcedScope !== 'global' ? { ...body, scope: enforcedScope } : body);
     const quote = bounded(body.quote, 'Trecho de origem', 1000);
     if (!message.content.includes(quote) || !normal(quote).includes(normal(draft.value)) || looksLikeSecret(quote)) {
       throw new BadRequestException('Use o valor literal presente no pedido do usuário.');
     }
-    if (draft.scope !== 'global' && !normal(quote).includes(normal(draft.scope))) {
+    if (!enforcedScope && draft.scope !== 'global' && !normal(quote).includes(normal(draft.scope))) {
       throw new BadRequestException('O escopo precisa aparecer no trecho.');
     }
     if (draft.operation !== 'add' && !/\b(?:corrij[ae]|errad[oa]|nunca|atualiz[ae]|agora|mudei|mudou|antes|passei)\b/iu.test(quote)) {
@@ -321,7 +323,7 @@ export class MemoryService {
     return { memory: 'save', items: [], outcome: saved.allowModel ? 'saved' : 'saved-private' };
   }
 
-  async explicitForget(messageId: string, conversationId: string): Promise<MemoryResult> {
+  async explicitForget(messageId: string, conversationId: string, allowedScope = 'global'): Promise<MemoryResult> {
     const message = await this.source(messageId, conversationId);
     const settings = await this.settings();
     if (!settings.enabled || !FORGET.test(message.content)) throw new BadRequestException('Peça explicitamente para esquecer.');
@@ -331,12 +333,12 @@ export class MemoryService {
       const phrase = words(value);
       return Boolean(phrase) && request.includes(' ' + phrase + ' ');
     };
-    const items = await this.prisma.memoryItem.findMany({ select: {
+    const items = await this.prisma.memoryItem.findMany({ where: { scope: allowedScope }, select: {
       id: true, version: true, subject: true, predicate: true, scope: true,
       revisions: { ...latest, select: { value: true } },
     } });
     const matches = items.filter(({ subject, predicate, scope, revisions }) => {
-      if (scope !== 'global' && !mentions(scope)) return false;
+      if (scope !== 'global' && scope !== allowedScope && !mentions(scope)) return false;
       const value = revisions[0]?.value;
       return (mentions(predicate) && (normal(subject) === 'usuario' || mentions(subject))) ||
         Boolean(value && mentions(value));
@@ -347,12 +349,16 @@ export class MemoryService {
     return { memory: 'forget', items: [], outcome: 'forgotten' };
   }
 
-  async fixed(date: string, settings: Awaited<ReturnType<MemoryService['settings']>>): Promise<FixedMemory> {
+  async fixed(
+    date: string,
+    settings: Awaited<ReturnType<MemoryService['settings']>>,
+    scope = 'global',
+  ): Promise<FixedMemory> {
     const maxTokens = settings.enabled ? settings.fixedContextMaxTokens : 0;
     if (!maxTokens) return { items: [], maxTokens, disabled: !settings.enabled };
     const [items, activity] = await Promise.all([
       this.prisma.memoryItem.findMany({
-        where: { scope: 'global', archived: false, allowModel: true, OR: [{ pinned: true }, { kind: { in: ['profile', 'preference'] } }] },
+        where: { scope, archived: false, allowModel: true, OR: [{ pinned: true }, { kind: { in: ['profile', 'preference'] } }] },
         orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         include: { revisions: this.revisionsAt(date) },
       }),
@@ -388,6 +394,7 @@ export class MemoryService {
   async persistAnswer(
     data: Prisma.MessageUncheckedCreateInput, sourceId: string, request: string,
     recalls: Array<Pick<MemoryHit, 'id' | 'revision'>> = [],
+    enforcedScope = 'global',
   ) {
     const eligible = request.trim().length >= 12 && allowsAutomaticMemory(request);
     const names = eligible ? declaredNames(request) : [];
@@ -426,7 +433,8 @@ export class MemoryService {
           });
           if (!job) return;
           for (const { quote, ...draft } of names) {
-            await this.saveAutomatic(tx, draft, job.message, quote);
+            const scopedDraft = enforcedScope === 'global' ? draft : { ...draft, scope: enforcedScope };
+            await this.saveAutomatic(tx, scopedDraft, job.message, quote, enforcedScope);
           }
           await tx.memoryJob.update({ where: { messageId: sourceId }, data: { done: true } });
         });
@@ -439,11 +447,12 @@ export class MemoryService {
 
   async saveAutomatic(
     tx: Prisma.TransactionClient, draft: Draft, source: { id: string; content: string; createdAt: Date }, quote: string,
+    enforcedScope?: string,
   ) {
     const key = memoryKey(draft);
     if (!allowsAutomaticMemory(source.content) || !source.content.includes(quote) ||
       !normal(quote).includes(normal(draft.value)) || looksLikeSecret(quote)) return false;
-    if (draft.scope !== 'global' && !normal(quote).includes(normal(draft.scope))) return false;
+    if (draft.scope !== 'global' && draft.scope !== enforcedScope && !normal(quote).includes(normal(draft.scope))) return false;
     if (draft.validFrom && draft.validFrom > formatApplicationDate(source.createdAt, await this.timeZone(tx))) return false;
     if (await tx.memorySuppression.findFirst({ where: { key: { in: [
       key, sourceFingerprint(source.id, draft.value), sourceFingerprint(source.id, quote),

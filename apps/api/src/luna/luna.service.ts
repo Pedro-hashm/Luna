@@ -190,6 +190,13 @@ export class LunaService {
       messages.push({ role: 'system', content: `VOICE RESPONSE MODE: Responda de forma curta e direta, com a informação principal primeiro. Evite introduções, repetição da pergunta, listas longas e detalhes secundários. No máximo ${maxSentences} frases e ${maxWords} palavras. Preserve citações necessárias em pesquisas.` });
     }
 
+    if (input.context.runtime?.sharedVoiceChannel === true) {
+      messages.push({
+        role: 'system',
+        content: 'Você está falando em um canal de voz compartilhado: outras pessoas ouvem sua resposta. Não revele credenciais, informações íntimas ou memórias pessoais sensíveis em voz alta, a menos que a pessoa peça claramente e seja apropriado fazê-lo. Não compartilhe dados pertencentes ao escopo de outra pessoa. As memórias e ferramentas pessoais deste turno pertencem à identidade Discord que iniciou a fala.',
+      });
+    }
+
     const webExecutions = input.toolExecutions.filter((execution) => execution.tool === 'web_research');
     if (webExecutions.length > 0) {
       messages.push({ role: 'system', content: WEB_RESEARCH_PROMPT });

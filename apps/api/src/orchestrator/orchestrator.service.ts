@@ -46,6 +46,7 @@ export class OrchestratorService {
     const settings = await this.settingsService.getApplicationSettings();
     const tools = this.toolRegistry.describe().filter(
       (tool) =>
+        (tool.name !== 'conversation_retrieval' || context.runtime.memoryScope === 'global') &&
         (tool.name !== 'conversation_context' || settings.conversationEvidenceEnabled) &&
         (tool.name !== 'web_research' || settings.researchEnabled !== false) &&
         (!isMemoryTool(tool.name) || (
@@ -314,6 +315,7 @@ export class OrchestratorService {
             conversationId: context.conversationId,
             currentMessageId: context.currentMessageId,
             currentDateTime: context.currentDateTime,
+            memoryScope: typeof context.runtime.memoryScope === 'string' ? context.runtime.memoryScope : 'global',
             messages: context.recentMessages,
           },
         };

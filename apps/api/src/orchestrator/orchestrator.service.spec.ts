@@ -45,6 +45,7 @@ describe('OrchestratorService', () => {
         conversationId,
         currentMessageId,
         currentDateTime: '2026-09-21T12:00:00.000Z',
+        memoryScope: 'global',
         messages: orchestratorContext().recentMessages,
       },
     });
@@ -60,6 +61,19 @@ describe('OrchestratorService', () => {
     expect(nextPrompt).not.toContain(currentMessageId);
     expect(nextPrompt).not.toContain(chunkId);
     expect(nextPrompt).toContain('Tokyo Ghoul é uma série');
+  });
+
+  it('does not expose cross-conversation retrieval to an isolated Discord identity', async () => {
+    const harness = createHarness([llmResponse('{"type":"finalize"}')]);
+    const context = orchestratorContext();
+    context.runtime.memoryScope = 'discord:42:99';
+
+    await harness.service.execute(context);
+
+    const registeredTools = harness.chat.mock.calls[0]?.[0].messages
+      .find((message: { content: string }) => message.content.startsWith('Registered tools:'))?.content;
+    expect(registeredTools).not.toContain('"name":"conversation_retrieval"');
+    expect(harness.execute).not.toHaveBeenCalled();
   });
 
   it('returns structured semantic validation feedback to the model', async () => {

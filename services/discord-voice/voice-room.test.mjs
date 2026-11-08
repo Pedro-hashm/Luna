@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate as next } from 'node:timers/promises';
 import { downsampleDiscordPcm, VoiceRoom, wakeChime, withoutWakeWord } from './voice-room.mjs';
-import { localBase, pcmWave, readControlSettings } from './providers.mjs';
+import { createProviders, localBase, pcmWave, readControlSettings } from './providers.mjs';
 
 function frame(value) {
   const pcm = Buffer.alloc(2_560);
@@ -17,8 +17,7 @@ function setup(overrides = {}) {
     detect: async () => true,
     reset: async () => {},
     transcribe: async pcm => { events.push({ pcm }); return 'Luna, tudo bem?'; },
-    answer: async (command, history) => { events.push({ command, history }); return 'Tudo bem.'; },
-    synthesize: async () => Buffer.from('audio'),
+    answer: async (command, context) => { events.push({ command, context }); return Buffer.from('audio'); },
     ...overrides,
   };
   const room = new VoiceRoom({
@@ -119,7 +118,47 @@ test('a pause after the cue preserves the capture window and only shares own con
   advance(950);
   room.tick();
   await next();
-  assert.deepEqual(events.filter(event => event.command).map(event => event.history), [[], []]);
+  assert.deepEqual(events.filter(event => event.command).map(event => event.context.userId), ['alice', 'bob']);
+});
+
+test('chat wake plays the cue before capturing one turn and removes its temporary listener', async () => {
+  const { events, room, advance } = setup();
+  room.onTemporaryEnd = userId => events.push({ temporaryEnd: userId });
+  assert.equal(room.listenOnce('alice', { guildId: '42', conversationSessionId: 'call-1', username: 'Alice' }), true);
+  assert.equal(room.turn.phase, 'cue');
+  await room.turn.cue;
+  assert.equal(room.turn.phase, 'capture');
+  for (let i = 0; i < 3; i++) {
+    advance(80);
+    room.receive('alice', frame(5_000));
+  }
+  advance(950);
+  room.tick();
+  await next();
+  assert.deepEqual(events.filter(event => typeof event === 'string'), ['cue', 'reply']);
+  const requestContext = events.find(event => event.command).context;
+  assert.equal(requestContext.guildId, '42');
+  assert.equal(requestContext.conversationSessionId, 'call-1');
+  assert.equal(requestContext.username, 'Alice');
+  assert.equal(requestContext.userId, 'alice');
+  assert.match(requestContext.voiceSessionId, /^[0-9a-f-]{36}$/u);
+  assert.equal(events.find(event => event.temporaryEnd).temporaryEnd, 'alice');
+  assert.equal(room.has('alice'), false);
+});
+
+test('chat wake preserves an existing wake-word opt-in after its one turn', async () => {
+  const { room, advance } = setup();
+  room.add('alice', { requestContext: { guildId: '42' } });
+  assert.equal(room.listenOnce('alice', { guildId: '42', conversationSessionId: 'call-1' }), true);
+  await room.turn.cue;
+  for (let i = 0; i < 3; i++) {
+    advance(80);
+    room.receive('alice', frame(5_000));
+  }
+  advance(950);
+  room.tick();
+  await next();
+  assert.equal(room.has('alice'), true);
 });
 
 test('leaving while STT is running cancels reply and discards participant context', async () => {
@@ -153,6 +192,31 @@ test('worker configuration accepts only valid selected IDs and local provider UR
   assert.throws(() => localBase('http://user@api'));
   assert.throws(() => localBase('http://speaches:8000/private'));
   assert.equal(localBase('http://speaches:8000'), 'http://speaches:8000');
+});
+
+test('Discord voice forwards the transcript to the authenticated Luna runtime for speech synthesis', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url: String(url), options };
+    return new Response(Buffer.from('mp3-audio'), { headers: { 'content-type': 'audio/mpeg' } });
+  };
+  const providers = createProviders({
+    LUNA_API_URL: 'http://api:8000',
+    DISCORD_VOICE_WORKER_SECRET: 'worker-secret',
+  });
+  const audio = await providers.answer('Qual é o meu jogo favorito?', {
+    guildId: '42', userId: '99', conversationSessionId: 'call-uuid',
+    username: 'Pedro', voiceSessionId: 'voice-uuid',
+  });
+  assert.equal(request.url, 'http://api:8000/discord-voice/worker/turn');
+  assert.equal(request.options.headers.authorization, 'Bearer worker-secret');
+  assert.deepEqual(JSON.parse(request.options.body), {
+    guildId: '42', userId: '99', sessionId: 'call-uuid', username: 'Pedro',
+    transcript: 'Qual é o meu jogo favorito?',
+  });
+  assert.deepEqual(audio, Buffer.from('mp3-audio'));
 });
 
 test('PCM conversion, cue and keyword parsing keep the voice contract', () => {
