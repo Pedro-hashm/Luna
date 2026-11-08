@@ -29,8 +29,14 @@ try {
   const page = await browser.newPage({ baseURL: url, viewport: { width: 1280, height: 850 } });
   page.setDefaultTimeout(45_000);
   await page.addInitScript(() => {
-    window.speechPlayback = { starts: 0, stops: 0, blockNext: false };
+    window.speechPlayback = { starts: 0, stops: 0, audioBytes: 0, blockNext: false };
     const { play, pause } = HTMLMediaElement.prototype;
+    const blob = Response.prototype.blob;
+    Response.prototype.blob = async function () {
+      const data = await blob.call(this);
+      if (this.url && new URL(this.url).pathname.endsWith('/speech')) window.speechPlayback.audioBytes += data.size;
+      return data;
+    };
     HTMLMediaElement.prototype.play = async function () {
       if (window.speechPlayback.blockNext) {
         window.speechPlayback.blockNext = false;
@@ -62,13 +68,13 @@ try {
   await send(userText);
   await page.waitForURL('**/chat/*');
   const first = await firstAudio;
-  assert.equal(first.status(), 200, await first.text().catch(() => ''));
+  assert.equal(first.status(), 200);
   assert.match(first.headers()['content-type'], /^audio\//);
   assert.match(first.headers()['cache-control'], /no-store/);
-  const firstBytes = (await first.body()).length;
+  await page.waitForFunction(() => window.speechPlayback.starts === 1);
+  const firstBytes = await page.evaluate(() => window.speechPlayback.audioBytes);
   assert.ok(firstBytes > 1_000);
   const firstLatencyMs = Date.now() - start;
-  await page.waitForFunction(() => window.speechPlayback.starts === 1);
   const id = new URL(page.url()).pathname.split('/').at(-1);
   const conversation = await (await page.request.get('/api/conversation/' + id)).json();
   const assistant = conversation.messages.find(message => message.role === 'assistant');
@@ -88,7 +94,7 @@ try {
   await message.getByRole('button', { name: 'Ouvir mensagem' }).click();
   const manual = await manualAudio;
   assert.ok(new URL(manual.url()).pathname.includes(user.id));
-  assert.equal(manual.status(), 200, await manual.text().catch(() => ''));
+  assert.equal(manual.status(), 200);
   await page.waitForFunction(() => window.speechPlayback.starts === 1);
   await message.getByRole('button', { name: 'Parar leitura' }).click();
 
