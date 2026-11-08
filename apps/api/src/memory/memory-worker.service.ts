@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
 import { bounded, hash, isChatOnlyMemoryRequest, looksLikeSecret, memoryKey, normal, object, readDraft, sourceFingerprint } from './memory.types';
+import { declaredNames } from './declared-name';
 
 const BATCH = 8;
 
@@ -70,7 +71,13 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
       const messages = jobs.filter(({ message }) =>
         message.role === 'user' && message.content.trim().length >= 12 &&
         !looksLikeSecret(message.content) && !isChatOnlyMemoryRequest(message.content));
-      const candidates = messages.length ? await this.extract(messages.map(({ message }) => message.content.slice(0, 1800))) : [];
+      const introductions = messages.map(({ message }) => ({ message, names: declaredNames(message.content) }));
+      const general = introductions.filter(({ names }) => !names.length).map(({ message }) => message);
+      const extracted = general.length ? await this.extract(general.map(message => message.content.slice(0, 1800))) : [];
+      const candidates = [
+        ...introductions.flatMap(({ message, names }) => names.map(candidate => ({ candidate, message }))),
+        ...extracted.map(candidate => ({ candidate, message: undefined })),
+      ];
       const proposed = await this.prisma.$transaction(async (tx) => {
         const settings = await tx.memorySettings.findUniqueOrThrow({ where: { id: 1 } });
         if (!settings.enabled || !settings.suggestionsEnabled) {
@@ -78,7 +85,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
           return 0;
         }
         let count = 0;
-        for (const candidate of candidates.slice(0, 16)) {
+        for (const { candidate, message } of candidates.slice(0, 16)) {
           let raw: Record<string, unknown>;
           let draft;
           let quote;
@@ -89,7 +96,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
           } catch {
             continue;
           }
-          const source = typeof raw.index === 'number' && Number.isInteger(raw.index) ? messages[raw.index]?.message : undefined;
+          const source = message ?? (typeof raw.index === 'number' && Number.isInteger(raw.index) ? general[raw.index] : undefined);
           if (!source || !source.content.includes(quote) || looksLikeSecret(quote)) continue;
           // A valid citation can still arrive with a paraphrased value from a small model.
           // Use the cited words as the candidate; human review can shorten them.

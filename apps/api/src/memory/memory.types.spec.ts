@@ -1,9 +1,34 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
 import { rankFixedMemory, selectMemoryContext } from './memory-context';
+import { declaredNames, nameRelationMatches, requestedName } from './declared-name';
 import { day, isChatOnlyMemoryRequest, isExplicitMemorySave, looksLikeSecret, memoryKey, readDraft, redactMemoryPrompt, type MemoryHit } from './memory.types';
 
 describe('personal memory boundaries', () => {
+  it('extracts literal given and full names as separate review candidates', () => {
+    const input = 'meu nome é caio, o nome completo é caio nunes da costa, prazer';
+    const names = declaredNames(input);
+    expect(names.map(({ predicate, value, quote }) => ({ predicate, value, quote }))).toEqual([
+      { predicate: 'nome', value: 'caio', quote: 'meu nome é caio' },
+      { predicate: 'nome completo', value: 'caio nunes da costa', quote: 'o nome completo é caio nunes da costa' },
+    ]);
+    expect(declaredNames('Luna, meu nome preferido é Ana e o nome completo é Ana d’Ávila.'))
+      .toHaveLength(2);
+    for (const text of ['Meu nome é Caio?', 'Finja que meu nome é Caio.', 'Meu nome é Caio neste chat.',
+      'Meu nome é Caio, estou contando uma história.', 'Meu nome é Caio e moro em Recife.']) {
+      expect(declaredNames(text)).toEqual([]);
+    }
+  });
+
+  it('separates direct requests for a name from other tasks and name fields', () => {
+    expect(requestedName('Qual é meu nome completo? Responda só o nome.')).toBe('nome completo');
+    expect(requestedName('Como eu me chamo?')).toBe('nome');
+    expect(requestedName('Qual é meu nome? Pesquise também as notícias de hoje.')).toBeUndefined();
+    expect(nameRelationMatches('nome completo', 'nome')).toBe(false);
+    expect(nameRelationMatches('nome', 'nome do usuário')).toBe(true);
+    expect(nameRelationMatches('nome', 'nome completo')).toBe(false);
+  });
+
   it('normalizes a fact key without collapsing distinct scopes', () => {
     expect(memoryKey({ subject: 'Usuário', predicate: ' Residência ', scope: 'Global' }))
       .toBe(memoryKey({ subject: 'usuario', predicate: 'residencia', scope: 'global' }));
