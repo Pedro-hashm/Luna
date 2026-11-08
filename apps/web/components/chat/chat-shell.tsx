@@ -40,6 +40,7 @@ import { BrainFlow, type BrainStage } from "@/components/observability/brain-flo
 import { TokenCounter, estimateUiTokens } from "@/components/observability/token-counter";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import { useChatSpeech } from "@/components/chat/chat-speech-provider";
+import { ChatMemoryNotice, useChatMemoryChanges } from "@/components/chat/chat-memory-notice";
 
 type UiMessage = {
   id: string;
@@ -114,6 +115,7 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
   const autoplayConversationId = conversationId ?? initialConversationId;
   const isInteractionDisabled = isLoading || isConversationLoading;
   const visibleMessages = messages.filter((message) => message.id !== welcomeMessage.id);
+  const memoryChanges = useChatMemoryChanges(conversationId, visibleMessages.at(-1)?.id);
   const historyTokens = estimateUiTokens(
     visibleMessages
       .filter((message) => message.role !== "tool")
@@ -516,10 +518,16 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
                   <ConversationLoadingIndicator />
                 ) : (
                   messages.map((message) => (
-                    <MessageBubble key={message.id} message={message}
-                      playback={speech.playback?.conversationId === conversationId && speech.playback?.messageId === message.id ? speech.playback : undefined}
-                      onSpeak={conversationId && message.createdAt && message.content.trim() && (message.role === "assistant" || message.role === "user")
-                        ? () => speech.toggleMessage({ conversationId, messageId: message.id }) : undefined} />
+                    <div key={message.id}>
+                      <MessageBubble message={message}
+                        playback={speech.playback?.conversationId === conversationId && speech.playback?.messageId === message.id ? speech.playback : undefined}
+                        onSpeak={conversationId && message.createdAt && message.content.trim() && (message.role === "assistant" || message.role === "user")
+                          ? () => speech.toggleMessage({ conversationId, messageId: message.id }) : undefined} />
+                      {message.role === "user" && <div className="ml-auto w-fit max-w-[85%]">
+                        {memoryChanges.filter(change => change.messageId === message.id).map(change =>
+                          <ChatMemoryNotice key={change.id} change={change} />)}
+                      </div>}
+                    </div>
                   ))
                 )}
                 {isLoading ? <ThinkingIndicator /> : null}

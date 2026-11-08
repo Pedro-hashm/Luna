@@ -42,7 +42,7 @@ export class UserAgentService {
       state.runtime.memoryEnabled = settings.enabled;
       state.runtime.memorySuggestionsEnabled = settings.enabled && settings.suggestionsEnabled;
       state.runtime.memoryAllowExplicitUse = settings.allowExplicitUse;
-      if (settings.enabled && settings.suggestionsEnabled && asksAboutMemory(initial.input)) {
+      if (settings.enabled && asksAboutMemory(initial.input)) {
         const previous = state.recentMessages.findLast(message => message.role === 'user' && message.id !== initial.currentMessageId);
         if (previous) state.runtime.previousMemoryReview = await this.memory.reviewStatus(previous.id);
       }

@@ -42,7 +42,7 @@ async function chat(content) {
   const traces = inspector.responses.filter(trace => trace.requestId === reply.requestId);
   const trace = traces.find(item => item.responseMessageId === answer.id);
   assert.ok(trace);
-  return { answer: answer.content, model: answer.model, traces, trace, user: reply.messages.find(message => message.role === 'user').id };
+  return { answer: answer.content, model: answer.model, traces, trace, conversationId: reply.conversationId, user: reply.messages.find(message => message.role === 'user').id };
 }
 
 await mkdir(out, { recursive: true });
@@ -50,7 +50,7 @@ try {
   await step('explicit save uses the ordinary turn and is available in another chat', async () => {
     const initial = await json('/memory');
     assert.equal(initial.settings.suggestionsEnabled, false);
-    assert.equal(initial.settings.allowExplicitUse, false);
+    assert.equal(initial.settings.allowExplicitUse, true);
     await json('/memory/settings', 'PATCH', { allowExplicitUse: true });
     results.remember = await chat('Lembre que meu editor padrão é Boreal Desk.');
     assert.ok(results.remember.traces.some(trace => trace.toolName === 'memory_save' && trace.status === 'success'));
@@ -111,25 +111,25 @@ try {
     results.timeline = timeline;
   });
 
-  await step('local batch proposes grounded facts and forgetting blocks replay', async () => {
+  await step('local batch saves grounded facts and chat undo blocks replay', async () => {
     await json('/memory/settings', 'PATCH', { suggestionsEnabled: true });
     const hobby = await chat('Eu coleciono xícaras azuis como passatempo.');
     const ephemeral = await chat('Guarde só neste contexto de teste: a cor do meu editor é púrpura limão.');
     assert.ok(!ephemeral.traces.some(trace => trace.toolName === 'memory_save'));
     const queued = await json('/memory');
-    assert.ok(queued.queue.pending >= 2);
+    assert.ok(queued.queue.pending >= 1);
     assert.ok(!queued.items.some(item => /xícaras azuis/i.test(item.revisions[0].value)));
     assert.ok(!queued.items.some(item => /púrpura limão/i.test(item.revisions[0].value)));
     const batch = await json('/memory/review', 'POST');
-    const proposals = await json('/memory');
-    assert.ok(!proposals.suggestions.some(item => item.messageId === ephemeral.user));
-    const proposal = proposals.suggestions.find(item => item.messageId === hobby.user && /xícaras azuis/i.test(item.draft.value));
-    assert.ok(proposal, 'The local extractor did not propose the declared hobby: ' + JSON.stringify(proposals.suggestions));
-    assert.ok('Eu coleciono xícaras azuis como passatempo.'.includes(proposal.quote));
-    const confirmed = await json('/memory/suggestions/' + proposal.id + '/approve', 'POST', { allowModel: true });
-    const item = await json('/memory/items/' + confirmed.id);
+    assert.equal((await json('/memory/conversations/' + ephemeral.conversationId + '/activity')).changes.length, 0);
+    const { changes } = await json('/memory/conversations/' + hobby.conversationId + '/activity');
+    const saved = changes.find(change => change.messageId === hobby.user && /xícaras azuis/i.test(change.memory?.value));
+    assert.ok(saved, 'The local extractor did not save the declared hobby');
+    assert.ok('Eu coleciono xícaras azuis como passatempo.'.includes(saved.memory.quote));
+    assert.equal(saved.memory.allowModel, true);
+    const item = await json('/memory/items/' + saved.memory.id);
     assert.equal(item.revisions[0].sources[0].messageId, hobby.user);
-    await json('/memory/items/' + item.id + '?version=' + item.version, 'DELETE');
+    await json('/memory/changes/' + saved.id + '/undo', 'POST');
     assert.equal((await request('/memory/items/' + item.id)).status, 404);
 
     assert.match(hobby.user, /^[0-9a-f-]{36}$/);
@@ -137,8 +137,10 @@ try {
       'UPDATE memory_jobs SET done=false, attempts=0 WHERE "messageId" = ' + "'" + hobby.user + "'"], { stdio: 'pipe' });
     await json('/memory/review', 'POST');
     const replay = await json('/memory');
-    assert.ok(!replay.suggestions.some(item => item.messageId === hobby.user));
     assert.ok(!replay.items.some(item => /xícaras azuis/i.test(item.revisions[0].value)));
+    const undone = (await json('/memory/conversations/' + hobby.conversationId + '/activity')).changes[0];
+    assert.equal(undone.status, 'undone');
+    assert.equal(undone.memory, null);
     results.batch = { batch, afterReplay: replay.queue };
     await json('/memory/settings', 'PATCH', { suggestionsEnabled: false });
   });

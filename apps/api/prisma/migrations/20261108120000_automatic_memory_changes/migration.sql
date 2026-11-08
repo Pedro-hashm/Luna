@@ -1,4 +1,5 @@
 ALTER TABLE "memory_settings" ALTER COLUMN "allowExplicitUse" SET DEFAULT true;
+UPDATE "memory_settings" SET "allowExplicitUse" = true WHERE "id" = 1;
 
 CREATE TABLE "memory_changes" (
   "id" UUID NOT NULL PRIMARY KEY,

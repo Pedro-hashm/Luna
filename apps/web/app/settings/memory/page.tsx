@@ -20,7 +20,7 @@ const blank: MemoryDraft = { subject: "Usuário", predicate: "", value: "", kind
 const labels = { active: "Vigente", historical: "Histórica", retracted: "Retratada" };
 
 type Editor = { draft: MemoryDraft; item?: MemoryItem; suggestion?: MemorySuggestion; allowModel: boolean; pinned: boolean };
-const newEditor = (): Editor => ({ draft: { ...blank }, allowModel: false, pinned: false });
+const newEditor = (): Editor => ({ draft: { ...blank }, allowModel: true, pinned: false });
 
 function localDate(iso: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(iso));
@@ -188,8 +188,8 @@ export default function MemoryPage() {
                 <Setting label="Memória no chat" checked={data.settings.enabled} change={value => changeSettings({ enabled: value })}>
                   Permite consultar e gravar memórias quando você pedir.
                 </Setting>
-                <Setting label="Sugerir novas memórias" checked={data.settings.suggestionsEnabled} change={value => changeSettings({ suggestionsEnabled: value })}>
-                  Analisa mensagens novas com Ollama em segundo plano. Você aprova as sugestões.
+                <Setting label="Salvar memórias automaticamente" checked={data.settings.suggestionsEnabled} change={value => changeSettings({ suggestionsEnabled: value })}>
+                  Analisa mensagens novas e salva fatos duradouros. Você pode ver ou desfazer cada gravação no chat.
                 </Setting>
                 <Setting label="Usar pedidos de lembrar no chat" checked={data.settings.allowExplicitUse} change={value => changeSettings({ allowExplicitUse: value })}>
                   Autoriza novos itens gravados por pedido explícito a serem enviados ao modelo configurado.
@@ -199,7 +199,7 @@ export default function MemoryPage() {
             <div className="flex flex-wrap items-center gap-2" aria-label="Visualização das memórias">
               <button type="button" className={tab === "list" ? primary : button} onClick={() => setTab("list")} aria-pressed={tab === "list"}><List size={16} /> Meu perfil</button>
               <button type="button" className={tab === "map" ? primary : button} onClick={() => setTab("map")} aria-pressed={tab === "map"}><GitFork size={16} /> Mapa</button>
-              <button type="button" className={tab === "review" ? primary : button} onClick={() => setTab("review")} aria-pressed={tab === "review"}><Sparkles size={16} /> Sugestões ({data.suggestions.length})</button>
+              <button type="button" className={tab === "review" ? primary : button} onClick={() => setTab("review")} aria-pressed={tab === "review"}><Sparkles size={16} /> Atividade</button>
               <button type="button" className={button + " ml-auto"} onClick={() => { setEditor(newEditor()); setForgetting(false); }}><Plus size={16} /> Nova memória</button>
             </div>
             <div className={"grid min-w-0 gap-5 " + (editor ? "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "")}>
@@ -245,14 +245,15 @@ export default function MemoryPage() {
                 </>}
                 {tab === "review" && <>
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div><h2 className="text-lg font-semibold text-slate-900">Sugestões</h2><p className="mt-1 text-sm text-slate-600">{data.queue.pending} mensagem(ns) na fila{data.queue.failed > 0 ? " · " + data.queue.failed + " falharam" : ""}</p></div>
+                    <div><h2 className="text-lg font-semibold text-slate-900">Atividade da memória</h2><p className="mt-1 text-sm text-slate-600">{data.queue.pending} mensagem(ns) na fila{data.queue.failed > 0 ? " · " + data.queue.failed + " falharam" : ""}</p></div>
                     <button type="button" className={button} disabled={!data.settings.enabled || !data.settings.suggestionsEnabled}
                       onClick={() => void action("Analisando mensagens novas…", async () => {
-                        const result = await reviewMemory(); await reload(); setNotice(result.proposed + " sugestão(ões) encontrada(s).");
+                        const result = await reviewMemory(); await reload(); setNotice(result.saved + " memória(s) salva(s).");
                       })}>Analisar agora</button>
                   </div>
-                  <button type="button" className={button + " mt-3"} onClick={() => void action("Atualizando sugestões…", reload)}>Atualizar lista</button>
+                  <button type="button" className={button + " mt-3"} onClick={() => void action("Atualizando atividade…", reload)}>Atualizar lista</button>
                   <div className="mt-4 space-y-3">
+                    {data.suggestions.length > 0 && <h3 className="text-sm font-semibold text-slate-700">Sugestões anteriores</h3>}
                     {data.suggestions.map(suggestion => <article key={suggestion.id} className="rounded-2xl border border-indigo-100 bg-white/65 p-4">
                       <h3 className="font-semibold text-slate-900">{suggestion.draft.subject} · {suggestion.draft.predicate}</h3>
                       {suggestion.existing && <p className="mt-1 text-xs text-slate-500">Vigente: {suggestion.existing.value}</p>}
@@ -260,7 +261,7 @@ export default function MemoryPage() {
                       <blockquote className="mt-2 border-l-2 border-indigo-200 pl-3 text-sm text-slate-600">{suggestion.quote}</blockquote>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button type="button" className={primary} onClick={() => {
-                          setEditor({ suggestion, draft: { ...suggestion.draft }, allowModel: false, pinned: false }); setForgetting(false);
+                          setEditor({ suggestion, draft: { ...suggestion.draft }, allowModel: suggestion.existing?.allowModel ?? true, pinned: false }); setForgetting(false);
                         }}>Revisar sugestão</button>
                         <button type="button" className={button} onClick={() => void action("Rejeitando sugestão…", async () => {
                           await dismissMemory(suggestion.id); if (editor?.suggestion?.id === suggestion.id) setEditor(undefined); await reload();
@@ -268,7 +269,6 @@ export default function MemoryPage() {
                         <Link href={"/chat/" + suggestion.message.conversationId} className={button}>Ver origem</Link>
                       </div>
                     </article>)}
-                    {!data.suggestions.length && <p className="py-5 text-sm text-slate-600">Nenhuma sugestão aguardando revisão.</p>}
                   </div>
                 </>}
               </section>

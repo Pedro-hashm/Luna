@@ -22,7 +22,7 @@ export type MemoryItem = Pick<MemoryDraft, "subject" | "predicate" | "scope" | "
 export type MemorySuggestion = {
   id: string; draft: MemoryDraft; quote: string; createdAt: string;
   message: { conversationId: string; createdAt: string };
-  existing: { id: string; version: number; value: string } | null;
+  existing: { id: string; version: number; value: string; allowModel: boolean } | null;
 };
 export type MemoryDashboard = {
   settings: MemorySettings; items: MemoryItem[]; suggestions: MemorySuggestion[];
@@ -33,6 +33,15 @@ export type MemoryDashboard = {
     items: Array<{ id: string; subject: string; predicate: string; reason: "fixada" | "perfil" | "recorrente"; chats: number; included: boolean }>;
   };
 };
+
+export type MemoryChatChange = {
+  id: string;
+  messageId: string;
+  status: "saved" | "undone" | "removed";
+  updated: boolean;
+  memory: { id: string; predicate: string; value: string; quote?: string; allowModel: boolean; canUndo: boolean } | null;
+};
+type MemoryActivity = { pending: boolean; changes: MemoryChatChange[] };
 
 const root = "/api/memory";
 const itemPath = (id: string) => "/items/" + encodeURIComponent(id);
@@ -49,8 +58,11 @@ export const readMemory = (id: string) => requestJson<MemoryItem>(root + itemPat
 export const readMemoryMap = (subject: string, date: string) =>
   requestJson<MemoryItem[]>(root + "/map?" + new URLSearchParams({ subject, date }), { cache: "no-store" });
 export const configureMemory = (settings: Partial<MemorySettings>) => send<MemorySettings>("/settings", "PATCH", settings);
-export const reviewMemory = () => send<{ examined: number; proposed: number }>("/review", "POST");
+export const reviewMemory = () => send<{ examined: number; saved: number }>("/review", "POST");
 export const saveMemory = (body: object, id?: string) => send<{ id: string }>(id ? itemPath(id) : "/items", id ? "PATCH" : "POST", body);
 export const forgetMemory = (item: MemoryItem) => send(itemPath(item.id) + "?version=" + item.version, "DELETE");
 export const approveMemory = (id: string, body: object) => send<{ id: string }>(suggestionPath(id) + "/approve", "POST", body);
 export const dismissMemory = (id: string) => send(suggestionPath(id), "DELETE");
+export const listMemoryActivity = (id: string, signal: AbortSignal) =>
+  requestJson<MemoryActivity>(root + "/conversations/" + encodeURIComponent(id) + "/activity", { cache: "no-store", signal });
+export const undoMemoryChange = (id: string) => send<{ undone: boolean }>("/changes/" + encodeURIComponent(id) + "/undo", "POST");

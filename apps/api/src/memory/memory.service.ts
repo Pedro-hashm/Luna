@@ -81,7 +81,7 @@ export class MemoryService {
         const item = byKey.get(itemKey);
         return {
           ...suggestion,
-          existing: item ? { id: item.id, version: item.version, value: item.revisions[0]?.value } : null,
+          existing: item ? { id: item.id, version: item.version, value: item.revisions[0]?.value, allowModel: item.allowModel } : null,
         };
       }),
       queue: { pending, failed },
