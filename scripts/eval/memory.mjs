@@ -142,6 +142,66 @@ try {
     results.batch = { batch, afterReplay: replay.queue };
     await json('/memory/settings', 'PATCH', { suggestionsEnabled: false });
   });
+
+  await step('authorized profile and useful cross-chat recalls fill the automatic base within budget', async () => {
+    const create = (predicate, value, controls = {}) => json('/memory/items', 'POST', {
+      subject: 'Usuário', predicate, value, scope: 'global', kind: 'profile', allowModel: true, ...controls,
+    });
+    const name = await create('nome preferido', 'Tamires Oliva');
+    const editor = await create('editor padrão', 'Aurora Desk', { kind: 'preference' });
+    const privateLanguage = await create('idioma de resposta', 'Rutilo 91', { allowModel: false });
+    const scopedName = await create('nome preferido', 'Neblina 27', { scope: 'Projeto Alfa' });
+    const initial = await json('/memory');
+    assert.equal(initial.settings.fixedContextMaxTokens, 512);
+    assert.ok(initial.fixed.items.some(item => item.id === name.id && item.reason === 'perfil' && item.included));
+    assert.ok(!initial.fixed.items.some(item => [editor.id, privateLanguage.id, scopedName.id].includes(item.id)));
+    assert.ok(initial.fixed.tokens <= initial.fixed.effectiveLimit);
+    assert.equal((await request('/memory/settings', 'PATCH', { fixedContextMaxTokens: 4097 })).status, 400);
+
+    results.initialFixed = await chat('Qual é a porta padrão do PostgreSQL? Responda apenas com o número.');
+    const base = results.initialFixed.trace.context.memory;
+    assert.equal(results.initialFixed.answer.trim(), '5432');
+    assert.ok(!results.initialFixed.traces.some(trace => trace.toolName === 'memory_search'));
+    assert.ok(base.items.some(item => item.id === name.id && item.reason === 'perfil'));
+    assert.ok(!base.items.some(item => [privateLanguage.id, scopedName.id].includes(item.id)));
+    assert.ok(base.tokens <= base.fixedBudget);
+    assert.doesNotMatch(JSON.stringify(results.initialFixed.trace.context), /Tamires Oliva|Rutilo 91|Neblina 27/);
+
+    results.automaticRecall = [];
+    for (const [index, input] of [
+      'Para instalar uma extensão no meu editor de código, qual editor devo abrir? Diga só o nome do meu editor padrão.',
+      'Quero procurar atalhos de teclado para meu editor padrão. Responda apenas o nome do editor que eu uso.',
+      'Em qual editor de código eu costumo editar Markdown? Responda só o nome do meu editor.',
+    ].entries()) {
+      const result = await chat(input);
+      results.automaticRecall.push(result);
+      assert.match(result.answer, /^Aurora Desk[.!]?\s*$/i);
+      assert.ok(result.trace.context.memory.items.some(item => item.id === editor.id));
+      assert.ok(result.traces.some(trace => trace.toolName === 'memory_search' && trace.status === 'success'));
+      assert.equal((await json('/memory')).fixed.items.some(item => item.id === editor.id), index === 2);
+    }
+    const promoted = (await json('/memory')).fixed.items.find(item => item.id === editor.id);
+    assert.equal(promoted.reason, 'recorrente');
+    assert.equal(promoted.chats, 3);
+    assert.equal(promoted.included, true);
+
+    await json('/memory/settings', 'PATCH', { fixedContextMaxTokens: 0 });
+    assert.equal((await json('/memory')).fixed.tokens, 0);
+    results.searchWithoutFixed = await chat('Qual é meu editor padrão? Diga somente o nome.');
+    assert.match(results.searchWithoutFixed.answer, /^Aurora Desk[.!]?\s*$/i);
+    assert.equal(results.searchWithoutFixed.trace.context.memory.fixedBudget, 0);
+    assert.ok(results.searchWithoutFixed.trace.context.memory.items.some(item => item.id === editor.id && item.reason === 'busca'));
+
+    await json('/memory/settings', 'PATCH', { fixedContextMaxTokens: 512 });
+    const corrected = await json('/memory/items/' + editor.id, 'PATCH', {
+      ...editor, predicate: 'editor padrão', value: 'Cobalto Desk', operation: 'correct', version: editor.version,
+    });
+    assert.ok(!(await json('/memory')).fixed.items.some(item => item.id === editor.id));
+    await json('/memory/items/' + editor.id + '?version=' + corrected.version, 'DELETE');
+    const oldRecalls = execFileSync('docker', ['exec', project + '-postgres-1', 'psql', '-XAt', '-U', 'eval', '-d', 'eval', '-v', 'ON_ERROR_STOP=1', '-c',
+      'SELECT count(*) FROM memory_recalls WHERE "itemId" = ' + "'" + editor.id + "'"], { encoding: 'utf8' }).trim();
+    assert.equal(oldRecalls, '0');
+  });
   report.status = 'pass';
 } finally {
   await writeFile(join(out, 'memory-report.json'), JSON.stringify({ ...report, results }, null, 2));

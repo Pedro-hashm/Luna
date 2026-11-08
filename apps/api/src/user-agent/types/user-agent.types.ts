@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../../llm/types/types';
 import type { LunaGenerateResult } from '../../luna/luna.types';
 import type { OrchestratorResult } from '../../orchestrator/orchestrator.types';
+import type { FixedMemory } from '../../memory/memory-context';
 
 export type RuntimeMessage = ChatMessage & {
   id: string;
@@ -26,9 +27,7 @@ export type UserAgentInitialState = {
 };
 
 export type UserAgentState = UserAgentInitialState & {
-  memory: {
-    items: unknown[];
-  };
+  memory: FixedMemory;
   preferences: Record<string, unknown>;
   runtime: Record<string, unknown>;
 };

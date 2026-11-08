@@ -3,9 +3,12 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatApplicationDate } from '../time/application-time';
 import {
-  bounded, day, flag, FORGET, isExplicitMemorySave, looksLikeSecret, memoryKey, normal, object, readDraft,
+  bounded, day, flag, FORGET, hash, isExplicitMemorySave, looksLikeSecret, memoryKey, normal, object, readDraft,
   sourceFingerprint, type Draft, type MemoryHit, type MemoryResult,
 } from './memory.types';
+import {
+  MAX_FIXED_MEMORY_TOKENS, MEMORY_RECALL_WINDOW_DAYS, rankFixedMemory, selectMemoryContext, type FixedMemory,
+} from './memory-context';
 
 type Source = { messageId: string; quote: string };
 type Controls = { allowModel?: boolean; pinned?: boolean; archived?: boolean };
@@ -24,7 +27,14 @@ export class MemoryService {
     const input = object(body);
     const data = Object.fromEntries(['enabled', 'suggestionsEnabled', 'allowExplicitUse']
       .filter(key => input[key] !== undefined).map(key => [key, flag(input[key], false)]));
-    return this.prisma.memorySettings.update({ where: { id: 1 }, data });
+    const maxTokens = input.fixedContextMaxTokens;
+    if (maxTokens !== undefined && (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) ||
+      maxTokens < 0 || maxTokens > MAX_FIXED_MEMORY_TOKENS)) {
+      throw new BadRequestException('O orçamento da memória fixa deve ser um inteiro entre 0 e 4096.');
+    }
+    return this.prisma.memorySettings.update({
+      where: { id: 1 }, data: { ...data, fixedContextMaxTokens: maxTokens as number | undefined },
+    });
   }
 
   async list() {
@@ -39,6 +49,12 @@ export class MemoryService {
       this.prisma.memoryJob.count({ where: { done: false, attempts: { gte: 3 } } }),
     ]);
     const byKey = new Map(items.map(item => [item.key, item]));
+    const date = formatApplicationDate(new Date(), await this.timeZone());
+    const fixed = await this.fixed(date, settings);
+    const application = await this.prisma.applicationSettings.findUnique({
+      where: { id: 1 }, select: { llmCombo: true, llmMaxTokens: true },
+    });
+    const preview = selectMemoryContext(fixed, [], [], application?.llmCombo ?? '', application?.llmMaxTokens);
     return {
       settings, items: items.map(({ key: _key, ...item }) => item),
       suggestions: suggestions.map(({ fingerprint: _fingerprint, itemKey, ...suggestion }) => {
@@ -49,6 +65,13 @@ export class MemoryService {
         };
       }),
       queue: { pending, failed },
+      fixed: {
+        tokens: preview.tokens, effectiveLimit: preview.fixedBudget,
+        items: fixed.items.map(({ hit, reason, chats }) => ({
+          id: hit.id, subject: hit.subject, predicate: hit.predicate, reason, chats,
+          included: preview.items.some(item => item.id === hit.id),
+        })),
+      },
     };
   }
 
@@ -196,18 +219,44 @@ export class MemoryService {
     return { memory: 'forget', items: [], outcome: 'forgotten' };
   }
 
-  async pinned(date: string): Promise<MemoryHit[]> {
-    return this.hits(date, 'global', [], true);
+  async fixed(date: string, settings: Awaited<ReturnType<MemoryService['settings']>>): Promise<FixedMemory> {
+    const maxTokens = settings.enabled ? settings.fixedContextMaxTokens : 0;
+    if (!maxTokens) return { items: [], maxTokens, disabled: !settings.enabled };
+    const [items, activity] = await Promise.all([
+      this.prisma.memoryItem.findMany({
+        where: { scope: 'global', archived: false, allowModel: true, OR: [{ pinned: true }, { kind: { in: ['profile', 'preference'] } }] },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        include: { revisions: this.revisionsAt(date) },
+      }),
+      this.prisma.$queryRaw<Array<{ itemId: string; revision: number; chats: number; requests: number }>>`
+        SELECT "itemId", "revision", count(*)::int AS chats, count(DISTINCT "requestHash")::int AS requests
+        FROM "memory_recalls" WHERE "usedAt" >= now() - ${MEMORY_RECALL_WINDOW_DAYS} * interval '1 day'
+        GROUP BY "itemId", "revision"
+      `,
+    ]);
+    const byRevision = new Map(activity.map(row => [row.itemId + '/' + row.revision, row]));
+    return { maxTokens, items: rankFixedMemory(items.flatMap(item => {
+      const revision = item.revisions[0];
+      if (!revision) return [];
+      const stats = byRevision.get(item.id + '/' + revision.number);
+      return [{
+        hit: this.hit(item, revision), pinned: item.pinned, kind: item.kind,
+        chats: stats?.chats ?? 0, requests: stats?.requests ?? 0,
+      }];
+    })) };
   }
 
   async search(query: string, date: string, scope: string): Promise<MemoryResult> {
     const words = [...new Set(normal(query).split(/[^\p{L}\p{N}]+/u)
       .filter(word => word.length > 2 && !/^(qual|onde|como|atual|usuario|sobre|memoria|voce|meu|minha|moro|estou|falei|que)$/u.test(word)))].slice(0, 10);
     if (/\b(cidade|residencia|moro|morava|moradia|morar)\b/u.test(normal(query))) words.push('residencia', 'cidade');
-    return { memory: 'search', items: words.length ? await this.hits(date, scope, words, false) : [] };
+    return { memory: 'search', items: words.length ? await this.hits(date, scope, words) : [] };
   }
 
-  async persistAnswer(data: Prisma.MessageUncheckedCreateInput, sourceId: string) {
+  async persistAnswer(
+    data: Prisma.MessageUncheckedCreateInput, sourceId: string, request: string,
+    recalls: Array<Pick<MemoryHit, 'id' | 'revision'>> = [],
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const message = await tx.message.create({ data });
       const settings = await tx.memorySettings.findUnique({ where: { id: 1 } });
@@ -217,14 +266,27 @@ export class MemoryService {
           create: { messageId: sourceId, availableAt: new Date(Date.now() + 30_000) },
         });
       }
+      if (settings?.enabled && recalls.length) {
+        const pairs = Prisma.join(recalls.map(({ id, revision }) => Prisma.sql`(${id}::uuid, ${revision}::int)`));
+        await tx.$executeRaw`
+          INSERT INTO "memory_recalls" ("itemId", "revision", "conversationId", "requestHash")
+          SELECT r."itemId", r."number", ${data.conversationId}::uuid, ${hash(normal(request))}
+          FROM "memory_revisions" r JOIN "memory_items" i ON i."id" = r."itemId"
+          WHERE (r."itemId", r."number") IN (${pairs})
+            AND r."status" = 'active' AND i."allowModel" AND NOT i."archived" AND i."scope" = 'global'
+          ORDER BY r."itemId", r."number"
+          FOR KEY SHARE OF r
+          ON CONFLICT ("itemId", "revision", "conversationId") DO UPDATE SET "usedAt" = now()
+        `;
+      }
       return message;
     });
   }
 
-  private async hits(date: string, scope: string, words: string[], pinned: boolean): Promise<MemoryHit[]> {
+  private async hits(date: string, scope: string, words: string[]): Promise<MemoryHit[]> {
     if (!(await this.settings()).enabled) return [];
     const items = await this.prisma.memoryItem.findMany({
-      where: { scope: { equals: scope, mode: 'insensitive' }, archived: false, allowModel: true, ...(pinned && { pinned: true }) },
+      where: { scope: { equals: scope, mode: 'insensitive' }, archived: false, allowModel: true },
       orderBy: { updatedAt: 'desc' }, take: 1000,
       include: { revisions: this.revisionsAt(date) },
     });
@@ -235,12 +297,18 @@ export class MemoryService {
       const identity = normal(item.subject + ' ' + item.predicate);
       const value = normal(revision.value);
       const score = words.reduce((total, word) => total + (identity.includes(word) ? 3 : value.includes(word) ? 1 : 0), 0);
-      if (!pinned && !score) return [];
-      return [{ score, hit: {
-        id: item.id, revision: revision.number, subject: item.subject, predicate: item.predicate,
-        scope: item.scope, value: revision.value, validFrom: revision.validFrom, validTo: revision.validTo,
-      } }];
-    }).sort((a, b) => b.score - a.score).slice(0, pinned ? 3 : 5).map(({ hit }) => hit);
+      return score ? [{ score, hit: this.hit(item, revision) }] : [];
+    }).sort((a, b) => b.score - a.score).slice(0, 5).map(({ hit }) => hit);
+  }
+
+  private hit(
+    item: Pick<MemoryHit, 'id' | 'subject' | 'predicate' | 'scope'>,
+    revision: { number: number; value: string; validFrom: string | null; validTo: string | null },
+  ): MemoryHit {
+    return {
+      id: item.id, revision: revision.number, subject: item.subject, predicate: item.predicate,
+      scope: item.scope, value: revision.value, validFrom: revision.validFrom, validTo: revision.validTo,
+    };
   }
 
   private revisionsAt(date: string) {

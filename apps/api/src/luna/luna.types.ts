@@ -1,5 +1,6 @@
 import type { ChatMessage, LlmResponse } from "../llm/types/types";
 import type { PersonalityIdentity } from './personality.service';
+import type { selectMemoryContext } from '../memory/memory-context';
 import type {
     OrchestratorContext,
     OrchestratorToolExecution,
@@ -16,4 +17,5 @@ export type LunaGenerateResult = {
     combo: string;
     promptMessages: ChatMessage[];
     personality: PersonalityIdentity;
+    memory: Omit<ReturnType<typeof selectMemoryContext>, 'content'>;
 };

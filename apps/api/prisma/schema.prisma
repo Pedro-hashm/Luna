@@ -133,6 +133,7 @@ model Conversation {
   observabilityTraces ObservabilityTrace[]
   researchRuns     ResearchRun[]
   voiceSessions    VoiceSession[]
+  memoryRecalls    MemoryRecall[]
 
   @@map("conversations")
 }
@@ -167,6 +168,7 @@ model MemorySettings {
   enabled            Boolean @default(true)
   suggestionsEnabled Boolean @default(false)
   allowExplicitUse   Boolean @default(false)
+  fixedContextMaxTokens Int  @default(512)
 
   @@map("memory_settings")
 }
@@ -200,9 +202,25 @@ model MemoryRevision {
   status     String
   recordedAt DateTime      @default(now())
   sources    MemorySource[]
+  recalls    MemoryRecall[]
 
   @@unique([itemId, number])
   @@map("memory_revisions")
+}
+
+model MemoryRecall {
+  itemId         String         @db.Uuid
+  revision       Int
+  conversationId String         @db.Uuid
+  requestHash    String
+  usedAt         DateTime       @default(now())
+  memoryRevision MemoryRevision @relation(fields: [itemId, revision], references: [itemId, number], onDelete: Cascade)
+  conversation   Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, revision, conversationId])
+  @@index([usedAt])
+  @@index([conversationId])
+  @@map("memory_recalls")
 }
 
 model MemorySource {

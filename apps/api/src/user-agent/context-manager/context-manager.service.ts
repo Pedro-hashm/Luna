@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import type { RuntimeMessage } from "../types/user-agent.types";
 
+export function estimateContextTokens(content: string): number {
+    return content ? Math.max(1, Math.ceil(content.length / 4)) : 0;
+}
+
 @Injectable()
 export class ContextManagerService {
     buildRecentMessages(
@@ -54,7 +58,7 @@ export class ContextManagerService {
     }
 
     estimateTokens(content: string): number {
-        return content ? Math.max(1, Math.ceil(content.length / 4)) : 0;
+        return estimateContextTokens(content);
     }
 
     private truncateMessage(
