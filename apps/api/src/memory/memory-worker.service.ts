@@ -137,7 +137,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
       cursor: { id: message.id },
       skip: 1,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 3,
+      take: 2,
       select: { role: true, content: true },
     });
     const context = previous.reverse().filter(({ content }) => !looksLikeSecret(content))
