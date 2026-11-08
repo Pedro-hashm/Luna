@@ -10,6 +10,9 @@ import {
   MessageSquare,
   Mic2,
   Sparkles,
+  Square,
+  Volume2,
+  VolumeX,
   Wrench,
   X,
 } from "lucide-react";
@@ -36,6 +39,7 @@ import {
 import { BrainFlow, type BrainStage } from "@/components/observability/brain-flow";
 import { TokenCounter, estimateUiTokens } from "@/components/observability/token-counter";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
+import { useChatSpeech } from "@/components/chat/chat-speech-provider";
 
 type UiMessage = {
   id: string;
@@ -69,8 +73,23 @@ function toUiMessage(message: ConversationMessage): UiMessage {
   };
 }
 
+const autoplayKey = (id: string) => "luna:chat-read-aloud:" + id;
+
+function savedAutoplay(id: string | undefined) {
+  try { return Boolean(id && localStorage.getItem(autoplayKey(id)) === "on"); }
+  catch { return false; }
+}
+
+function saveAutoplay(id: string, enabled: boolean) {
+  try {
+    if (enabled) localStorage.setItem(autoplayKey(id), "on");
+    else localStorage.removeItem(autoplayKey(id));
+  } catch { /* The toggle still works in the current chat if storage is unavailable. */ }
+}
+
 export function ChatShell({ initialConversationId }: { initialConversationId?: string }) {
   const router = useRouter();
+  const speech = useChatSpeech();
   const [messages, setMessages] = useState<UiMessage[]>([welcomeMessage]);
   const [draft, setDraft] = useState("");
   const [conversationId, setConversationId] = useState<string>();
@@ -89,6 +108,10 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
   const [brainStage, setBrainStage] = useState<BrainStage>();
   const [completedBrainStages, setCompletedBrainStages] = useState<BrainStage[]>([]);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [autoplay, setAutoplay] = useState(false);
+  const autoplayRef = useRef(false);
+  const mounted = useRef(false);
+  const autoplayConversationId = conversationId ?? initialConversationId;
   const isInteractionDisabled = isLoading || isConversationLoading;
   const visibleMessages = messages.filter((message) => message.id !== welcomeMessage.id);
   const historyTokens = estimateUiTokens(
@@ -109,6 +132,25 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
   const conversationStats = conversationId
     ? getLocalConversationStats(visibleMessages)
     : undefined;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const enabled = savedAutoplay(autoplayConversationId);
+    autoplayRef.current = enabled;
+    setAutoplay(enabled);
+  }, [autoplayConversationId]);
+
+  function toggleAutoplay() {
+    const enabled = !autoplayRef.current;
+    autoplayRef.current = enabled;
+    setAutoplay(enabled);
+    if (autoplayConversationId) saveAutoplay(autoplayConversationId, enabled);
+    if (!enabled) speech.stop();
+  }
 
   const loadConversations = async () => {
     setIsConversationsLoading(true);
@@ -181,6 +223,9 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
       return;
     }
 
+    speech.stop();
+    autoplayRef.current = false;
+    setAutoplay(false);
     setConversationId(undefined);
     setConversationTitle("Nova conversa");
     setMessages([welcomeMessage]);
@@ -204,6 +249,7 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
       return;
     }
 
+    speech.stop();
     setIsConversationLoading(true);
     setError(undefined);
 
@@ -311,11 +357,16 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
         setBrainStage("context");
         setCompletedBrainStages(["user"]);
         const response = await sendConversationMessage({ content, conversationId });
+        if (!mounted.current) return;
         const userMessage = response.messages.find((message) => message.role === "user");
         const assistantMessage = response.messages.find(
           (message) => message.role === "assistant",
         );
 
+        if (isFirstMessage) saveAutoplay(response.conversationId, autoplayRef.current);
+        if (assistantMessage && autoplayRef.current) {
+          speech.enqueueResponse({ conversationId: response.conversationId, messageId: assistantMessage.id }, isFirstMessage);
+        }
         setConversationId(response.conversationId);
         if (isFirstMessage) router.replace(`/chat/${encodeURIComponent(response.conversationId)}`);
         if (isFirstMessage) {
@@ -407,7 +458,14 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
               </div>
             </div>
 
-            <div className="hidden items-center gap-2 sm:flex">
+            <div className="flex items-center gap-2">
+              <button type="button" aria-pressed={autoplay} aria-label="Ler respostas automaticamente"
+                title="Ler respostas automaticamente" onClick={toggleAutoplay}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium ${autoplay ? "bg-indigo-100 text-indigo-700" : "text-slate-600 hover:bg-white/75"}`}>
+                {autoplay ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+                <span className="hidden sm:inline">Leitura automática</span>
+              </button>
+              <div className="hidden items-center gap-2 sm:flex">
               <Link
                 className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500"
                 href={conversationId ? `/voice/${encodeURIComponent(conversationId)}` : "/voice"}
@@ -431,6 +489,7 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
               </Link>
               <span className="size-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(34,197,94,0.12)]" />
               Pronta para ajudar
+              </div>
             </div>
           </header>
 
@@ -457,7 +516,10 @@ export function ChatShell({ initialConversationId }: { initialConversationId?: s
                   <ConversationLoadingIndicator />
                 ) : (
                   messages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
+                    <MessageBubble key={message.id} message={message}
+                      playback={speech.playback?.conversationId === conversationId && speech.playback?.messageId === message.id ? speech.playback : undefined}
+                      onSpeak={conversationId && message.createdAt && message.content.trim() && (message.role === "assistant" || message.role === "user")
+                        ? () => speech.toggleMessage({ conversationId, messageId: message.id }) : undefined} />
                   ))
                 )}
                 {isLoading ? <ThinkingIndicator /> : null}
@@ -762,10 +824,15 @@ function ConversationLoadingIndicator() {
   );
 }
 
-function MessageBubble({ message }: { message: UiMessage }) {
+function MessageBubble({ message, playback, onSpeak }: {
+  message: UiMessage;
+  playback?: ReturnType<typeof useChatSpeech>["playback"];
+  onSpeak?: () => void;
+}) {
   const isTool = message.role === "tool";
   const isAssistant =
     message.role === "assistant" || message.role === "system" || isTool;
+  const speaking = playback?.status === "playing" || playback?.status === "loading";
 
   return (
     <article className={`animate-fade-up flex gap-3 ${isAssistant ? "items-start" : "justify-end"}`}>
@@ -786,6 +853,16 @@ function MessageBubble({ message }: { message: UiMessage }) {
         ) : (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         )}
+        {onSpeak && <div className="mt-1 flex flex-wrap items-center gap-2">
+          <button type="button" aria-label={speaking ? "Parar leitura" : "Ouvir mensagem"}
+            title={speaking ? "Parar leitura" : "Ouvir mensagem"} onClick={onSpeak}
+            className={`inline-flex size-8 items-center justify-center rounded-lg ${isAssistant ? "text-indigo-700 hover:bg-indigo-50" : "text-slate-200 hover:bg-white/15"}`}>
+            {playback?.status === "loading" ? <LoaderCircle className="size-4 animate-spin" />
+              : speaking ? <Square className="size-4" /> : <Volume2 className="size-4" />}
+          </button>
+          {playback?.status === "loading" && <span role="status" className="text-xs">Gerando áudio…</span>}
+          {playback?.error && <span role="status" className="text-xs">{playback.error}</span>}
+        </div>}
         {message.failed ? (
           <p className="mt-2 border-t border-white/15 pt-2 text-[11px] text-red-200">
             A resposta não foi concluída.

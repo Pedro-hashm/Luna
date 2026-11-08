@@ -51,6 +51,21 @@ export function getWakeModelStatus(): Promise<WakeModelStatus> {
   return voiceJson<WakeModelStatus>("/api/voice/wake/status");
 }
 
+export async function readChatSpeech(conversationId: string, messageId: string, offset: number, signal: AbortSignal) {
+  const path = `/api/voice/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/speech?offset=${offset}`;
+  const response = await fetch(path, { method: "POST", signal });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined);
+    throw new Error(typeof payload?.message === "string" ? payload.message : "Não foi possível carregar o áudio.");
+  }
+  const nextHeader = response.headers.get("x-luna-speech-next");
+  const next = nextHeader === null ? null : Number(nextHeader);
+  if (next !== null && (!Number.isSafeInteger(next) || next <= offset)) {
+    throw new Error("O servidor retornou uma posição de áudio inválida.");
+  }
+  return { audio: await response.blob(), next };
+}
+
 export function voiceWebSocketUrl(sessionId: string): string {
   const configured = process.env.NEXT_PUBLIC_VOICE_WS_URL;
   const base = configured
