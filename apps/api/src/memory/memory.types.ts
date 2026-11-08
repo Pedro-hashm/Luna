@@ -61,6 +61,10 @@ export function hash(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+export function sourceFingerprint(messageId: string, value: string) {
+  return 'source:' + hash(JSON.stringify([messageId, normal(value)]));
+}
+
 export function memoryKey(draft: Pick<Draft, 'subject' | 'predicate' | 'scope'>): string {
   return hash(JSON.stringify([draft.subject, draft.predicate, draft.scope].map(normal)));
 }

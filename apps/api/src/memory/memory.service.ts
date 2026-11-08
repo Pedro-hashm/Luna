@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   bounded, day, flag, FORGET, looksLikeSecret, memoryKey, normal, object, readDraft, REMEMBER,
-  type Draft, type MemoryHit, type MemoryResult,
+  sourceFingerprint, type Draft, type MemoryHit, type MemoryResult,
 } from './memory.types';
 
 type Source = { messageId: string; quote: string };
@@ -51,6 +51,17 @@ export class MemoryService {
     };
   }
 
+  async map(input: unknown, asOf: unknown) {
+    const subject = bounded(input, 'Assunto', 80);
+    const date = day(asOf);
+    const items = await this.prisma.memoryItem.findMany({
+      where: { subject: { equals: subject, mode: 'insensitive' }, archived: false },
+      include: { revisions: date ? this.revisionsAt(date) : latest },
+      orderBy: { updatedAt: 'desc' }, take: 100,
+    });
+    return items.filter(item => item.revisions.length).map(({ key: _key, ...item }) => item);
+  }
+
   async get(id: string) {
     const item = await this.prisma.memoryItem.findUnique({
       where: { id },
@@ -91,7 +102,7 @@ export class MemoryService {
       }
       const draft = readDraft(input.draft ?? suggestion.draft);
       const key = memoryKey(draft);
-      if (await tx.memorySuppression.findUnique({ where: { key } })) {
+      if (await tx.memorySuppression.findFirst({ where: { key: { in: [key, sourceFingerprint(suggestion.messageId, draft.value)] } } })) {
         throw new ConflictException('Essa memória foi esquecida. Crie uma nova memória explicitamente.');
       }
       const expected = key === suggestion.itemKey
@@ -118,7 +129,14 @@ export class MemoryService {
       const item = await tx.memoryItem.findUnique({ where: { id } });
       if (!item) throw new NotFoundException('Memória não encontrada.');
       if (item.version !== version) throw new ConflictException('A memória mudou. Reabra o item antes de esquecer.');
-      await tx.memorySuppression.upsert({ where: { key: item.key }, update: { createdAt: new Date() }, create: { key: item.key } });
+      const revisions = await tx.memoryRevision.findMany({ where: { itemId: item.id }, include: { sources: true } });
+      const keys = [item.key, ...revisions.flatMap(revision =>
+        revision.sources.flatMap(source => [
+          sourceFingerprint(source.messageId, revision.value),
+          sourceFingerprint(source.messageId, source.quote),
+        ]),
+      )];
+      await tx.memorySuppression.createMany({ data: keys.map(key => ({ key })), skipDuplicates: true });
       await tx.memorySuggestion.deleteMany({ where: { itemKey: item.key } });
       await tx.memoryItem.delete({ where: { id } });
       return { forgotten: true };
@@ -199,14 +217,7 @@ export class MemoryService {
     const items = await this.prisma.memoryItem.findMany({
       where: { scope: { equals: scope, mode: 'insensitive' }, archived: false, allowModel: true, ...(pinned && { pinned: true }) },
       orderBy: { updatedAt: 'desc' }, take: 1000,
-      include: { revisions: {
-        where: {
-          status: { not: 'retracted' },
-          AND: [{ OR: [{ validFrom: { lte: date } }, { validFrom: null, recordedAt: { lt: new Date(date + 'T23:59:59.999Z') } }] },
-            { OR: [{ validTo: { gt: date } }, { validTo: null, status: 'active' }] }],
-        },
-        orderBy: { number: 'desc' }, take: 1,
-      } },
+      include: { revisions: this.revisionsAt(date) },
     });
     return items.flatMap(item => {
       const revision = item.revisions[0];
@@ -220,6 +231,19 @@ export class MemoryService {
         scope: item.scope, value: revision.value, validFrom: revision.validFrom, validTo: revision.validTo,
       } }];
     }).sort((a, b) => b.score - a.score).slice(0, pinned ? 3 : 5).map(({ hit }) => hit);
+  }
+
+  private revisionsAt(date: string) {
+    return {
+      where: {
+        status: { not: 'retracted' },
+        AND: [
+          { OR: [{ validFrom: { lte: date } }, { validFrom: null, recordedAt: { lte: new Date(date + 'T23:59:59.999Z') } }] },
+          { OR: [{ validTo: { gt: date } }, { validTo: null, status: 'active' }] },
+        ],
+      },
+      orderBy: { number: 'desc' as const }, take: 1,
+    };
   }
 
   private controls(input: Record<string, unknown>): Controls {

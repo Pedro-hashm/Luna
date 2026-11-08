@@ -2,7 +2,7 @@ import { ConflictException, Injectable, Logger, OnModuleDestroy, OnModuleInit } 
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemoryService } from './memory.service';
-import { bounded, hash, looksLikeSecret, memoryKey, normal, object, readDraft } from './memory.types';
+import { bounded, hash, looksLikeSecret, memoryKey, normal, object, readDraft, sourceFingerprint } from './memory.types';
 
 const BATCH = 8;
 
@@ -93,7 +93,9 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
           if (draft.scope !== 'global' && !normal(quote).includes(normal(draft.scope))) continue;
           if (draft.validFrom && draft.validFrom > source.createdAt.toISOString().slice(0, 10)) continue;
           const key = memoryKey(draft);
-          if (await tx.memorySuppression.findUnique({ where: { key } })) continue;
+          if (await tx.memorySuppression.findFirst({ where: { key: { in: [
+            key, sourceFingerprint(source.id, draft.value), sourceFingerprint(source.id, quote),
+          ] } } })) continue;
           if (!await tx.memoryJob.findFirst({ where: { messageId: source.id, leaseToken } })) continue;
           const item = await tx.memoryItem.findUnique({ where: { key }, include: { revisions: { orderBy: { number: 'desc' }, take: 1 } } });
           const current = item?.revisions[0];
