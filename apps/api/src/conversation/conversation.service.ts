@@ -9,7 +9,7 @@ import { MessageRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { MemoryService } from '../memory/memory.service';
-import { memoryReferences, redactMemoryExecution, redactMemoryPrompt, type MemoryHit } from '../memory/memory.types';
+import { MEMORY_PROMPT_PREFIX, redactMemoryExecution, redactMemoryPrompt, selectMemoryContext } from '../memory/memory.types';
 import type { ChatMessage } from '../llm/types/types';
 import { ObservabilityService } from '../observability/observability.service';
 import type {
@@ -410,14 +410,10 @@ export class ConversationService {
         ),
         personality: execution.luna.personality,
         memory: {
-          items: [
-            ...memoryReferences(execution.state.memory.items as MemoryHit[], 'fixada'),
-            ...execution.orchestrator.toolExecutions.flatMap((tool) =>
-              tool.result && 'memory' in tool.result ? memoryReferences(tool.result.items, 'busca') : [],
-            ),
-          ],
+          items: selectMemoryContext(execution.state.memory.items, execution.orchestrator.toolExecutions)
+            .map(({ hit, reason }) => ({ id: hit.id, revision: hit.revision, reason })),
           tokens: this.contextManager.estimateTokens(execution.luna.promptMessages
-            .filter(message => message.content.startsWith('Personal memory data for this reply:'))
+            .filter(message => message.content.startsWith(MEMORY_PROMPT_PREFIX))
             .map(message => message.content).join('\n')),
         },
       },

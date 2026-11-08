@@ -89,7 +89,13 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
             continue;
           }
           const source = typeof raw.index === 'number' && Number.isInteger(raw.index) ? messages[raw.index]?.message : undefined;
-          if (!source || !source.content.includes(quote) || !normal(quote).includes(normal(draft.value)) || looksLikeSecret(quote)) continue;
+          if (!source || !source.content.includes(quote) || looksLikeSecret(quote)) continue;
+          // A valid citation can still arrive with a paraphrased value from a small model.
+          // Use the cited words as the candidate; human review can shorten them.
+          if (!normal(quote).includes(normal(draft.value))) {
+            if (quote.length > 500) continue;
+            draft = { ...draft, value: quote };
+          }
           if (draft.scope !== 'global' && !normal(quote).includes(normal(draft.scope))) continue;
           if (draft.validFrom && draft.validFrom > source.createdAt.toISOString().slice(0, 10)) continue;
           const key = memoryKey(draft);

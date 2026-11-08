@@ -99,6 +99,21 @@ export function isMemoryTool(tool: string) {
   return (MEMORY_TOOLS as readonly string[]).includes(tool);
 }
 
+export function selectMemoryContext(pinned: unknown[], executions: Array<{ result?: unknown }>) {
+  const results = executions.flatMap(({ result }) =>
+    result && typeof result === 'object' && 'memory' in result ? [result as MemoryResult] : [],
+  );
+  if (results.some(result => result.outcome === 'forgotten')) return [];
+  const selected = new Map<string, { hit: MemoryHit; reason: string }>();
+  for (const [hits, reason] of [[pinned as MemoryHit[], 'fixada'], [results.flatMap(result => result.items), 'busca']] as const) {
+    for (const hit of hits) {
+      const key = hit.id + '/' + hit.revision;
+      if (!selected.has(key)) selected.set(key, { hit, reason });
+    }
+  }
+  return [...selected.values()].slice(0, 8);
+}
+
 export function memoryReferences(hits: MemoryHit[], reason: string) {
   return hits.map(({ id, revision }) => ({ id, revision, reason }));
 }
