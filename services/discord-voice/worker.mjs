@@ -170,20 +170,41 @@ function dropParticipant(current, userId) {
   stopStream(current, userId);
 }
 
-function resetParticipants(current) {
-  current.room.reset();
+function stopStreams(current) {
   for (const userId of current.streams.keys()) stopStream(current, userId);
 }
 
+function isInVoiceChannel(current, userId) {
+  return current.channel.guild.voiceStates.cache.get(userId)?.channelId === current.channel.id;
+}
+
+function restoreParticipants(current) {
+  for (const userId of current.room.persistentUserIds()) {
+    if (isInVoiceChannel(current, userId)) subscribe(current, userId);
+    else dropParticipant(current, userId);
+  }
+}
+
 function subscribe(current, userId) {
-  if (current.streams.has(userId) || !current.room.has(userId) ||
+  if (current.streams.has(userId) || !current.room.has(userId) || !isInVoiceChannel(current, userId) ||
       current.connection.state.status !== VoiceConnectionStatus.Ready) return;
   const stream = current.connection.receiver.subscribe(userId, { end: { behavior: EndBehaviorType.Manual } });
+  if (stream.destroyed) {
+    // The receiver removes a destroyed subscription on close, which can follow a Ready event.
+    stream.once('close', () => { if (session === current) subscribe(current, userId); });
+    return;
+  }
   const decoder = new OpusScript(48_000, 2, OpusScript.Application.VOIP);
+  let receivedFrame = false;
   current.streams.set(userId, stream);
   stream.on('data', packet => {
     try {
-      current.room.receive(userId, downsampleDiscordPcm(decoder.decode(packet)));
+      const pcm = downsampleDiscordPcm(decoder.decode(packet));
+      if (pcm.length && !receivedFrame) {
+        receivedFrame = true;
+        log('voice_stream_first_frame');
+      }
+      current.room.receive(userId, pcm);
     } catch {
       stream.destroy();
       log('opus_decode_failed');
@@ -201,7 +222,8 @@ function closeVoice() {
   if (!current) return;
   session = undefined;
   clearInterval(current.timer);
-  resetParticipants(current);
+  current.room.reset();
+  stopStreams(current);
   current.player.stop(true);
   if (current.connection.state.status !== VoiceConnectionStatus.Destroyed) current.connection.destroy();
 }
@@ -225,7 +247,7 @@ async function join(channel) {
     stopPlayback: () => player.stop(true),
     onTemporaryEnd: userId => { if (current) stopStream(current, userId); },
   });
-  current = { callId: randomUUID(), connection, player, room, streams: new Map(), timer: setInterval(() => room.tick(), 100) };
+  current = { callId: randomUUID(), channel, connection, player, room, streams: new Map(), timer: setInterval(() => room.tick(), 100) };
   session = current;
   connection.subscribe(player);
   connection.receiver.speaking.on('start', userId => {
@@ -233,8 +255,18 @@ async function join(channel) {
   });
   connection.on('stateChange', (before, after) => {
     if (session !== current) return;
-    if (before.status === VoiceConnectionStatus.Ready && after.status !== VoiceConnectionStatus.Ready) resetParticipants(current);
-    if (after.status === VoiceConnectionStatus.Destroyed) closeVoice();
+    if (after.status === VoiceConnectionStatus.Destroyed) {
+      closeVoice();
+      return;
+    }
+    if (before.status === VoiceConnectionStatus.Ready && after.status !== VoiceConnectionStatus.Ready) {
+      room.pause();
+      stopStreams(current);
+      log('voice_transport_paused');
+    } else if (before.status !== VoiceConnectionStatus.Ready && after.status === VoiceConnectionStatus.Ready) {
+      restoreParticipants(current);
+      log('voice_transport_ready', { subscriptions: current.streams.size });
+    }
     if (after.status === VoiceConnectionStatus.Disconnected) {
       void entersState(connection, VoiceConnectionStatus.Ready, 6_000).catch(() => {
         if (session === current) closeVoice();
@@ -368,6 +400,7 @@ async function handleCommand(interaction) {
     return;
   }
   subscribe(current, interaction.user.id);
+  log('voice_participation_enabled', { subscribed: current.streams.has(interaction.user.id) });
   await reply('Sua escuta temporária está ativa. Diga “Luna” para chamar. Cada fala transcrita e resposta será salva na interface local da Luna; todos na call ouvem o bip e a resposta. O áudio bruto não é salvo. Use /luna parar para sair.');
 }
 

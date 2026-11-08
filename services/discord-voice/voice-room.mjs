@@ -7,6 +7,8 @@ const maxPendingBytes = 24 * frameBytes;
 const maximumCaptureMs = 20_000;
 const commandWaitMs = 5_000;
 const silenceMs = 900;
+const minimumSpeechMs = 180;
+const wakeTailMs = 240;
 
 export function downsampleDiscordPcm(input) {
   const frames = Math.floor(input.length / 12);
@@ -45,6 +47,16 @@ function speech(pcm) {
   let squareSum = 0;
   for (let index = 0; index < pcm.length; index += 2) squareSum += pcm.readInt16LE(index) ** 2;
   return squareSum / (pcm.length / 2) > (0.014 * 32_768) ** 2;
+}
+
+function voicedDuration(pcm) {
+  const packetBytes = 20 * bytesPerMs;
+  let duration = 0;
+  for (let offset = 0; offset < pcm.length; offset += packetBytes) {
+    const packet = pcm.subarray(offset, offset + packetBytes);
+    if (speech(packet)) duration += packet.length / bytesPerMs;
+  }
+  return duration;
 }
 
 function clearWake(speaker) {
@@ -115,6 +127,33 @@ export class VoiceRoom {
     for (const userId of this.speakers.keys()) this.remove(userId);
   }
 
+  pause() {
+    if (this.turn) {
+      const turn = this.turn;
+      this.turn = undefined;
+      turn.controller.abort();
+      this.stopPlayback();
+    }
+    for (const speaker of this.speakers.values()) {
+      if (speaker.temporary) {
+        this.remove(speaker.userId);
+      } else {
+        clearWake(speaker);
+        speaker.lastFrameAt = -Infinity;
+      }
+    }
+  }
+
+  persistentUserIds() {
+    return [...this.speakers.values()].filter(speaker => !speaker.temporary).map(speaker => speaker.userId);
+  }
+
+  finishTurn(turn) {
+    if (this.turn !== turn) return;
+    this.turn = undefined;
+    if (turn.speaker.temporary) this.remove(turn.speaker.userId);
+  }
+
   receive(userId, pcm) {
     const speaker = this.speakers.get(userId);
     if (!speaker || !pcm.length || pcm.length % 2 || pcm.length > 3_840) return;
@@ -170,9 +209,8 @@ export class VoiceRoom {
       voicedMs: 0,
       phase: 'capture',
       buffers: [...speaker.preRoll],
-      prefixBytes: speaker.preRoll.length * frameBytes + 480 * bytesPerMs,
+      wakeBytes: speaker.preRoll.length * frameBytes,
       controller: new AbortController(),
-      removeSpeakerAfter: false,
       requireWakeWord: true,
     };
     this.turn = turn;
@@ -195,9 +233,7 @@ export class VoiceRoom {
       voicedMs: 0,
       phase: 'cue',
       buffers: [],
-      prefixBytes: 0,
       controller: new AbortController(),
-      removeSpeakerAfter: speaker.temporary,
       requireWakeWord: false,
     };
     this.turn = turn;
@@ -210,11 +246,8 @@ export class VoiceRoom {
         turn.lastSpeech = turn.started;
         turn.phase = 'capture';
       } catch {
-        this.log('cue_error');
-        if (this.turn === turn) {
-          this.turn = undefined;
-          if (turn.removeSpeakerAfter) this.remove(userId);
-        }
+        if (!turn.controller.signal.aborted) this.log('cue_error');
+        this.finishTurn(turn);
       }
     })();
     this.log('chat_wake_requested');
@@ -230,8 +263,6 @@ export class VoiceRoom {
     const turn = {
       speaker,
       controller: new AbortController(),
-      removeSpeakerAfter: speaker.temporary,
-      cue: Promise.resolve(),
     };
     this.turn = turn;
     void (async () => {
@@ -248,8 +279,7 @@ export class VoiceRoom {
       } catch {
         if (!turn.controller.signal.aborted) this.log('turn_error');
       } finally {
-        if (this.turn === turn) this.turn = undefined;
-        if (turn.removeSpeakerAfter && this.speakers.get(userId) === speaker) this.remove(userId);
+        this.finishTurn(turn);
       }
     })();
     this.log('chat_text_requested');
@@ -270,7 +300,7 @@ export class VoiceRoom {
     if (!turn || turn.phase !== 'capture') return;
     const now = this.now();
     const age = now - turn.started;
-    const hasSpeech = turn.voicedMs >= 180;
+    const hasSpeech = turn.voicedMs >= minimumSpeechMs;
     if (age < maximumCaptureMs && (hasSpeech ? now - turn.lastSpeech < silenceMs : age < commandWaitMs)) return;
     turn.phase = 'reply';
     void this.respond(turn);
@@ -283,15 +313,22 @@ export class VoiceRoom {
       turn.buffers = [];
       this.log('turn_capture_completed', { bytes: pcm.length, voicedMs: Math.round(turn.voicedMs) });
       const transcript = await this.providers.transcribe(pcm, signal);
+      if (signal.aborted) return;
       this.log('turn_transcription_completed', { characters: typeof transcript === 'string' ? transcript.length : 0 });
-      let command = turn.requireWakeWord ? withoutWakeWord(transcript) : transcript.trim();
-      if (turn.requireWakeWord && command === undefined && transcript && turn.voicedMs >= 180 && turn.prefixBytes < pcm.length) {
-        const wakeOnly = await this.providers.transcribe(pcm.subarray(0, turn.prefixBytes), signal);
-        this.log('turn_wake_prefix_checked', { characters: typeof wakeOnly === 'string' ? wakeOnly.length : 0 });
-        if (withoutWakeWord(wakeOnly) !== undefined) command = transcript;
+      let command = turn.requireWakeWord ? withoutWakeWord(transcript) : transcript;
+      if (turn.requireWakeWord && !command) {
+        const afterWake = pcm.subarray(turn.wakeBytes);
+        // The end of the wake word can overlap capture. Only retry if there
+        // is enough speech beyond that tail, then exclude pre-wake audio.
+        const commandVoicedMs = voicedDuration(afterWake.subarray(wakeTailMs * bytesPerMs));
+        if (commandVoicedMs >= minimumSpeechMs) {
+          const recovered = await this.providers.transcribe(afterWake, signal);
+          command = withoutWakeWord(recovered) ?? recovered;
+          this.log('turn_post_wake_transcribed', { voicedMs: Math.round(commandVoicedMs), characters: recovered.length });
+        }
       }
-      if (!command || signal.aborted) {
-        if (!signal.aborted) this.log('turn_skipped', { reason: transcript?.trim() ? 'wake_only' : 'empty_transcript' });
+      if (!command?.trim() || signal.aborted) {
+        if (!signal.aborted) this.log('turn_skipped', { reason: transcript ? 'no_command' : 'empty_transcript' });
         return;
       }
       this.log('turn_request_started', { inputCharacters: command.length });
@@ -310,10 +347,7 @@ export class VoiceRoom {
     } catch {
       if (!signal.aborted) this.log('turn_error');
     } finally {
-      if (this.turn === turn) this.turn = undefined;
-      if (turn.removeSpeakerAfter && this.speakers.get(turn.speaker.userId) === turn.speaker) {
-        this.remove(turn.speaker.userId);
-      }
+      this.finishTurn(turn);
     }
   }
 }

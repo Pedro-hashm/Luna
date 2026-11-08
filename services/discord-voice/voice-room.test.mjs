@@ -121,14 +121,21 @@ test('a pause after the cue preserves the capture window and only shares own con
   assert.deepEqual(events.filter(event => event.command).map(event => event.context.userId), ['alice', 'bob']);
 });
 
-test('a persistent wake-word listener handles two complete turns from the same speaker', async () => {
-  const { events, room, advance } = setup();
+test('a second wake turn recovers the command when STT omits the wake word', async () => {
+  const transcripts = ['Luna, tudo bem?', 'trecho anterior e a segunda pergunta', 'qual é a segunda resposta?'];
+  const transcribed = [];
+  const { events, room, advance } = setup({
+    transcribe: async pcm => {
+      transcribed.push(pcm);
+      return transcripts.shift();
+    },
+  });
   room.add('alice', { requestContext: { guildId: '42', username: 'Alice' } });
   const completeTurn = async () => {
     room.receive('alice', frame(5_000));
     await next();
     assert.equal(room.turn?.phase, 'capture');
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 7; i++) {
       advance(80);
       room.receive('alice', frame(5_000));
     }
@@ -142,7 +149,56 @@ test('a persistent wake-word listener handles two complete turns from the same s
   assert.equal(room.turn, undefined);
   assert.equal(room.has('alice'), true);
   assert.equal(events.filter(event => event === 'reply').length, 2);
-  assert.equal(events.filter(event => event.command).length, 2);
+  assert.deepEqual(events.filter(event => event.command).map(event => event.command), ['tudo bem?', 'qual é a segunda resposta?']);
+  assert.deepEqual(transcribed[2], transcribed[1].subarray(frame(0).length));
+});
+
+test('a misheard wake word without a spoken command does not start a request', async () => {
+  let transcriptions = 0;
+  const { events, room, advance } = setup({
+    transcribe: async () => { transcriptions++; return 'Loura.'; },
+  });
+  room.add('alice');
+  room.receive('alice', frame(5_000));
+  await next();
+  for (let i = 0; i < 3; i++) {
+    advance(80);
+    room.receive('alice', frame(5_000));
+  }
+  advance(950);
+  room.tick();
+  await next();
+  assert.equal(room.turn, undefined);
+  assert.equal(transcriptions, 1);
+  assert.deepEqual(events, ['cue']);
+});
+
+test('a temporary disconnect clears capture and preserves both opted-in speakers', async () => {
+  const { events, room, advance } = setup();
+  room.add('alice');
+  room.add('guest', { requestContext: { username: 'Guest' } });
+  room.add('one-shot', { temporary: true });
+  room.receive('alice', frame(5_000));
+  await next();
+  const cancelled = room.turn.controller.signal;
+  room.pause();
+  assert.equal(cancelled.aborted, true);
+  assert.equal(room.turn, undefined);
+  assert.deepEqual(room.persistentUserIds(), ['alice', 'guest']);
+  assert.equal(room.has('one-shot'), false);
+  room.receive('one-shot', frame(5_000));
+  room.receive('guest', frame(5_000));
+  await next();
+  for (let i = 0; i < 3; i++) {
+    advance(80);
+    room.receive('guest', frame(5_000));
+  }
+  advance(950);
+  room.tick();
+  await next();
+  assert.deepEqual(events.filter(event => event.command).map(event => event.context.userId), ['guest']);
+  room.remove('guest');
+  assert.deepEqual(room.persistentUserIds(), ['alice']);
 });
 
 test('chat wake plays the cue before capturing one turn and removes its temporary listener', async () => {
