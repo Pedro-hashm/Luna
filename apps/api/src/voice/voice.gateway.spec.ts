@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws';
 import { VoiceGateway } from './voice.gateway';
+import { forSpeech } from './voice-synthesis.service';
 
 describe('VoiceGateway wake idle', () => {
   it('removes the wake keyword while preserving an immediate spoken command', () => {
@@ -10,7 +11,7 @@ describe('VoiceGateway wake idle', () => {
     expect(gateway['withoutWakeWord']('Qual é a capital da Austrália?', 'Luna')).toBe('');
     expect(gateway['withoutWakeWord']('aluna está aqui', 'Luna')).toBe('');
     expect(gateway['withoutWakeWord']('Lunaris, pesquisa por que a RAM aumentou.', 'Luna')).toBe('');
-    expect(gateway['forSpeech']('A RAM subiu ([Canaltech](https://example.com/a)). **Fonte**: https://example.com/b'))
+    expect(forSpeech('A RAM subiu ([Canaltech](https://example.com/a)). **Fonte**: https://example.com/b'))
       .toBe('A RAM subiu (Canaltech). Fonte:');
   });
   it('routes idle audio only through openWakeWord and never through STT, LLM, or TTS', async () => {
@@ -19,8 +20,8 @@ describe('VoiceGateway wake idle', () => {
     const settings = { getApplicationSettings: jest.fn() };
     const wake = { detect: jest.fn().mockResolvedValue({ detected: false, score: 0.01, model: 'luna', timestamp: 1 }), reset: jest.fn(), name: 'openWakeWord' };
     const stt = { transcribe: jest.fn() };
-    const tts = { synthesize: jest.fn() };
-    const gateway = new VoiceGateway(voice as never, conversations as never, settings as never, wake as never, stt as never, tts as never);
+    const synthesis = { resolve: jest.fn() };
+    const gateway = new VoiceGateway(voice as never, conversations as never, settings as never, wake as never, stt as never, synthesis as never);
     const client = {
       socket: { readyState: WebSocket.OPEN, send: jest.fn() }, sessionId: 'session-1', conversationId: 'conversation-1', mode: 'wake', state: 'idle',
       audio: [], audioBytes: 0, audioStarted: false, wakeBuffer: [], wakeBytes: 0, wakePreRoll: [], wakeBusy: false,
@@ -32,7 +33,7 @@ describe('VoiceGateway wake idle', () => {
     expect(wake.detect.mock.calls.every(([frame]) => frame.length === 2_560)).toBe(true);
     expect(stt.transcribe).not.toHaveBeenCalled();
     expect(conversations.addMessageToConversation).not.toHaveBeenCalled();
-    expect(tts.synthesize).not.toHaveBeenCalled();
+    expect(synthesis.resolve).not.toHaveBeenCalled();
     expect(settings.getApplicationSettings).not.toHaveBeenCalled();
     expect(voice.event).not.toHaveBeenCalled();
   });

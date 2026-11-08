@@ -1,11 +1,12 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { ConversationService } from '../conversation/conversation.service';
 import { SettingsService } from '../settings/settings.service';
-import { F5TtsProvider, FasterQwenTtsProvider, FishAudioTtsProvider, KokoroTtsProvider, OpenWakeWordProvider, QwenTtsProvider, SpeachesSttProvider } from './voice.providers';
+import { OpenWakeWordProvider, SpeachesSttProvider } from './voice.providers';
 import { VoiceService } from './voice.service';
+import { forSpeech, VoiceSynthesisService } from './voice-synthesis.service';
 import type { VoiceMode, VoiceState } from './voice.types';
 
 type VoiceClient = {
@@ -43,11 +44,7 @@ export class VoiceGateway {
     private readonly settings: SettingsService,
     private readonly wake: OpenWakeWordProvider,
     private readonly stt: SpeachesSttProvider,
-    private readonly tts: KokoroTtsProvider,
-    @Optional() private readonly qwenTts?: QwenTtsProvider,
-    @Optional() private readonly f5Tts?: F5TtsProvider,
-    @Optional() private readonly fasterQwenTts?: FasterQwenTtsProvider,
-    @Optional() private readonly fishAudioTts?: FishAudioTtsProvider,
+    private readonly synthesis: VoiceSynthesisService,
   ) {}
 
   attach(server: Server): void {
@@ -304,25 +301,16 @@ export class VoiceGateway {
       requestId: result.requestId,
     });
     await this.setState(client, 'speaking');
-    const settings = await this.settings.getApplicationSettings();
-    client.ttsAbort = new AbortController();
-    const usesFishAudio = settings.voiceTtsEngine === 'fish';
-    const voiceId = usesFishAudio
-      ? settings.fishAudioReferenceId
-      : settings.voiceTtsEngine === 'qwen-fast'
-        ? settings.qwenFastVoiceId
-        : await this.voice.voiceIdForProfile(settings.voiceProfileId);
-    const ttsProvider = usesFishAudio ? this.fishAudioTts
-      : settings.voiceTtsEngine === 'qwen' && this.qwenTts ? this.qwenTts
-        : settings.voiceTtsEngine === 'qwen-fast' && this.fasterQwenTts ? this.fasterQwenTts
-          : settings.voiceTtsEngine === 'f5' && this.f5Tts ? this.f5Tts : this.tts;
-    if (!ttsProvider) throw new Error('Fish Audio provider is unavailable');
-    await this.voice.event(client.sessionId, 'voice.tts.started', { provider: ttsProvider.name, engine: settings.voiceTtsEngine, voice: voiceId, profileId: usesFishAudio ? null : settings.voiceProfileId });
+    const { provider, engine, voiceId, profileId, speed, streaming } = await this.synthesis.resolve();
+    if (generation !== client.generation) return;
+    const ttsAbort = new AbortController();
+    client.ttsAbort = ttsAbort;
+    await this.voice.event(client.sessionId, 'voice.tts.started', { provider: provider.name, engine, voice: voiceId, profileId });
     const ttsStarted = Date.now();
     try {
-      if (settings.voiceTtsEngine === 'qwen-fast' && settings.voiceTtsStreamingEnabled && this.fasterQwenTts) {
-        const stream = await this.fasterQwenTts.synthesizeStream(this.forSpeech(text), voiceId, settings.voiceSpeed, client.ttsAbort.signal);
-        if (generation !== client.generation || client.ttsAbort.signal.aborted) {
+      if (streaming) {
+        const stream = await streaming.synthesizeStream(forSpeech(text), voiceId, speed, ttsAbort.signal);
+        if (generation !== client.generation || ttsAbort.signal.aborted) {
           await stream.cancel();
           return;
         }
@@ -333,7 +321,7 @@ export class VoiceGateway {
         let chunkCount = 0;
         try {
           for await (const received of stream.chunks) {
-            if (generation !== client.generation || client.ttsAbort.signal.aborted || client.socket.readyState !== WebSocket.OPEN) break;
+            if (generation !== client.generation || ttsAbort.signal.aborted || client.socket.readyState !== WebSocket.OPEN) break;
             const audio = pending.length ? Buffer.concat([pending, received]) : received;
             const alignedLength = audio.length - (audio.length % 2);
             if (alignedLength > 0) {
@@ -349,22 +337,22 @@ export class VoiceGateway {
           throw error;
         }
 
-        if (generation !== client.generation || client.ttsAbort.signal.aborted || client.socket.readyState !== WebSocket.OPEN) return;
+        if (generation !== client.generation || ttsAbort.signal.aborted || client.socket.readyState !== WebSocket.OPEN) return;
         if (pending.length > 0) throw new Error('Faster Qwen3-TTS returned a truncated PCM sample');
         this.send(client, { type: 'audio.stream.end' });
         await this.voice.event(client.sessionId, 'voice.tts.chunk', { bytes: totalBytes, chunks: chunkCount });
         await this.voice.event(client.sessionId, 'voice.tts.completed', { latencyMs: Date.now() - ttsStarted, bytes: totalBytes, chunks: chunkCount, streaming: true });
       } else {
-        const result = await ttsProvider.synthesize(this.forSpeech(text), voiceId, settings.voiceSpeed, client.ttsAbort.signal);
+        const result = await provider.synthesize(forSpeech(text), voiceId, speed, ttsAbort.signal);
         if (generation !== client.generation) return;
         await this.voice.event(client.sessionId, 'voice.tts.chunk', { bytes: result.audio.length });
         await this.voice.event(client.sessionId, 'voice.tts.completed', { latencyMs: Date.now() - ttsStarted, bytes: result.audio.length });
         this.send(client, { type: 'audio', mimeType: result.mimeType, data: result.audio.toString('base64') });
       }
     } catch (error) {
-      if (client.ttsAbort.signal.aborted) return;
+      if (ttsAbort.signal.aborted) return;
       throw error;
-    } finally { client.ttsAbort = undefined; }
+    } finally { if (client.ttsAbort === ttsAbort) client.ttsAbort = undefined; }
   }
 
   private async afterSilence(client: VoiceClient): Promise<void> {
@@ -392,17 +380,6 @@ export class VoiceGateway {
     if (!boundary.test(transcript)) return '';
     const prefix = new RegExp(`^\\s*${escaped}s?(?:[\\s,!.?:;]+|$)`, 'iu');
     return transcript.replace(prefix, '').trim();
-  }
-
-  private forSpeech(text: string): string {
-    // Keep linked source names audible while leaving the full Markdown and
-    // URLs in the persisted Conversation response.
-    return text
-      .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/giu, '$1')
-      .replace(/https?:\/\/\S+/giu, '')
-      .replace(/[*_`#]/gu, '')
-      .replace(/\s+/gu, ' ')
-      .trim();
   }
 
   private async fail(client: VoiceClient, error: unknown): Promise<void> {

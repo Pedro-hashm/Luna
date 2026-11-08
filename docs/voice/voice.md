@@ -7,6 +7,12 @@ tempos; somente a transcrição do usuário e a resposta textual da Luna viram
 `Message`s da `Conversation`. O histórico e o `conversation_context` continuam
 no fluxo existente do `UserAgent`/Orchestrator.
 
+## Leitura no chat
+
+O botão de alto-falante lê uma mensagem salva do usuário ou da Luna. **Leitura automática**, no cabeçalho, começa desligada e fica salva por conversa neste navegador. Quando ligada, lê as novas respostas da Luna na ordem em que chegam. O histórico pode ser ouvido pelo botão de cada mensagem.
+
+A leitura usa o motor, a voz e a velocidade das configurações de voz. O texto chega ao chat antes da geração do áudio. Mensagens longas são lidas em partes, com uma reprodução por vez. Trocar de conversa cancela a leitura, e o botão **Ouvir mensagem** permite iniciar o áudio caso o navegador bloqueie a reprodução automática. Com Fish Audio selecionado, o texto de cada trecho é enviado ao serviço para síntese.
+
 ## Serviços
 
 | Serviço | Função | Chamada em Wake/Idle |
