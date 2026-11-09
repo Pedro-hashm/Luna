@@ -17,6 +17,7 @@ type RawChunk = {
 };
 
 type ConversationFilters = {
+  memoryScope?: string;
   includeConversationId?: string;
   excludeConversationId?: string;
   runtimeConversationId?: string;
@@ -38,10 +39,15 @@ export class ConversationChunkRetrievalProvider implements Retriever {
     reference: ConversationEvidenceReference,
     direction: 'before' | 'after' | 'both',
     adjacentLimit: number,
+    memoryScope?: string,
   ): Promise<Array<{ id: string; role: string; content: string; createdAt: Date }>> {
+    const source = {
+      conversationId: reference.conversationId,
+      ...(memoryScope && { conversation: { memoryScope } }),
+    };
     const anchor = await this.prisma.message.findMany({
       where: {
-        conversationId: reference.conversationId,
+        ...source,
         id: { in: reference.messageIds },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -54,7 +60,7 @@ export class ConversationChunkRetrievalProvider implements Retriever {
     const [before, after] = await Promise.all([
       direction === 'after' ? Promise.resolve([]) : this.prisma.message.findMany({
         where: {
-          conversationId: reference.conversationId,
+          ...source,
           OR: [
             { createdAt: { lt: first.createdAt } },
             { createdAt: first.createdAt, id: { lt: first.id } },
@@ -66,7 +72,7 @@ export class ConversationChunkRetrievalProvider implements Retriever {
       }),
       direction === 'before' ? Promise.resolve([]) : this.prisma.message.findMany({
         where: {
-          conversationId: reference.conversationId,
+          ...source,
           OR: [
             { createdAt: { gt: last.createdAt } },
             { createdAt: last.createdAt, id: { gt: last.id } },
@@ -192,6 +198,16 @@ export class ConversationChunkRetrievalProvider implements Retriever {
     const clauses: Prisma.Sql[] = [];
     if (requireEmbedding) clauses.push(Prisma.sql`cc."embedding" IS NOT NULL`);
 
+    if (filters.memoryScope) {
+      clauses.push(Prisma.sql`
+        EXISTS (
+          SELECT 1 FROM "conversations" source_conversation
+          WHERE source_conversation."id" = cc."conversation_id"
+            AND source_conversation."memory_scope" = ${filters.memoryScope}
+        )
+      `);
+    }
+
     if (filters.includeConversationId) {
       clauses.push(Prisma.sql`cc."conversation_id" = ${filters.includeConversationId}::uuid`);
     } else if (filters.excludeConversationId) {
@@ -259,6 +275,7 @@ export class ConversationChunkRetrievalProvider implements Retriever {
     const asString = (value: unknown) =>
       typeof value === 'string' && value.length > 0 ? value : undefined;
     return {
+      memoryScope: asString(input?.memoryScope),
       includeConversationId: asString(input?.includeConversationId),
       excludeConversationId: asString(input?.excludeConversationId),
       runtimeConversationId: asString(input?.runtimeConversationId),

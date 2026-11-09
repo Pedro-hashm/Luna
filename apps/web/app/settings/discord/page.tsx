@@ -21,9 +21,7 @@ const statusCopy: Record<DiscordVoiceSettings["status"]["state"], { label: strin
 
 const commands = [
   ["/luna entrar", "Chama a Luna para o canal de voz selecionado."],
-  ["/luna perguntar", "Toca o bip e escuta uma pergunta neste turno."],
-  ["/luna participar", "Ativa o wake word para os próximos turnos."],
-  ["/luna parar", "Encerra sua participação e apaga o contexto temporário da call."],
+  ["/luna perguntar query:…", "Envia sua pergunta por texto e a Luna responde em voz na call."],
   ["/luna sair", "Encerra a call para a Luna."],
 ] as const;
 
@@ -146,7 +144,7 @@ export default function DiscordSettingsPage() {
     const ownerDiscordUserId = ownerDraft.trim();
     if (ownerDiscordUserId && !validId(ownerDiscordUserId)) return;
     void update("Salvando identidade…", { ownerDiscordUserId: ownerDiscordUserId || null },
-      ownerDiscordUserId ? "Sua identidade do Discord foi vinculada às memórias globais." : "Vínculo removido. A próxima fala usará um escopo isolado.");
+      ownerDiscordUserId ? "Sua identidade do Discord foi vinculada às memórias globais." : "Vínculo removido. A próxima pergunta usará um escopo isolado.");
   }
 
   return (
@@ -159,7 +157,7 @@ export default function DiscordSettingsPage() {
             <Headphones className="shrink-0 text-indigo-600" size={28} /> Luna no Discord
           </h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Escolha onde a Luna pode entrar e conversar por voz. O bot só entra quando você usa <code>/luna entrar</code>.
+            Escolha o canal onde a Luna responde em voz às perguntas enviadas pelo chat do Discord.
           </p>
         </header>
 
@@ -282,10 +280,10 @@ export default function DiscordSettingsPage() {
               ))}
             </dl>
             <p className="mt-5 border-t border-indigo-100 pt-4 text-sm leading-6 text-slate-700">
-              Para falar uma vez, use <strong>/luna perguntar</strong>; o bip toca e só a voz de quem chamou é capturada. Para usar o wake word, primeiro use <strong>/luna participar</strong> e diga “Luna” antes da pergunta.
+              Envie cada pergunta pela sua própria conta. A Luna usa o ID do Discord para separar as conversas e as memórias de cada pessoa, mesmo quando os nomes exibidos são iguais.
             </p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              A fala reconhecida e a resposta viram mensagens em conversas visíveis na interface e nos fluxos da Luna. O áudio bruto não é salvo; todos no canal ouvem a resposta.
+              O bot entra com a escuta desativada. A pergunta e a resposta aparecem na interface e nos fluxos da Luna, e todos no canal ouvem a resposta.
             </p>
           </aside>
         </div>

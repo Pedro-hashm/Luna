@@ -16,6 +16,11 @@ export type ConversationEvidenceView = {
   dates: string[];
 };
 
+export type DiscordParticipant = {
+  displayName: string;
+  isOwner: boolean;
+};
+
 export type UserAgentInitialState = {
   requestId: string;
   input: string;
@@ -26,6 +31,7 @@ export type UserAgentInitialState = {
   outputMode?: 'text' | 'voice';
   memoryScope?: string;
   conversationSource?: string;
+  discordParticipant?: DiscordParticipant;
 };
 
 export type UserAgentState = UserAgentInitialState & {

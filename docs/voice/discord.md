@@ -1,14 +1,14 @@
 # Luna em canal de voz do Discord
 
-A primeira versão é um piloto para um canal de voz comum de um servidor privado. Configure o canal em **Configurações → Discord**. O botão de ativação permite que o bot receba comandos no canal escolhido.
+Configure o canal de voz em **Configurações → Discord**. A integração permite enviar perguntas pelo chat do Discord e ouvir as respostas da Luna na call.
 
 ## Usar na call
 
 - Entre no canal configurado e use **/luna entrar** para conectar o bot.
-- Cada pessoa que quiser ser ouvida usa **/luna participar** na call. Depois, diga “Luna” com a pergunta ou espere o bip antes de falar.
-- Todos no canal ouvem o bip e a resposta. Um participante por vez ganha o turno. **/luna parar** encerra sua participação. **/luna sair** desconecta a Luna.
+- Quem está no canal usa **/luna perguntar query:** e escreve a pergunta. O campo `query` é obrigatório.
+- Todos no canal ouvem a resposta na voz configurada na Luna. O bot responde a uma pergunta por vez. **/luna sair** desconecta a Luna.
 
-O piloto trata os pacotes de cada conta separadamente. Duas pessoas usando o mesmo microfone e a mesma conta chegam como uma única fonte. A transcrição, a geração e a síntese passam pelos serviços locais. O processamento usa o contexto temporário do turno e mantém as memórias e o histórico do perfil pessoal separados. As métricas de diagnóstico dispensam o áudio e o texto falado.
+O bot entra com a escuta desativada. A pergunta segue pela API normal da Luna, com o ID e o nome de exibição da conta que enviou o comando. A Luna distingue contas com o mesmo nome e mantém uma conversa por conta em cada call. Cada convidado tem seu próprio escopo de memória. A conta vinculada na interface usa as memórias do perfil principal. As perguntas e respostas aparecem no chat da Luna e nos fluxos de execução.
 
 ## Instalação e diagnóstico
 
@@ -16,5 +16,5 @@ Crie um aplicativo de bot no [Developer Portal](https://discord.com/developers/a
 
 O operador coloca a credencial do bot e um segredo interno aleatório no `.env` local. A interface só recebe o estado da integração e os destinos disponíveis. O segredo interno é usado entre a API e o serviço `discord-voice` e a credencial Discord é lida pelo serviço de voz. A integração inicia desativada. Para reverter o piloto, desative a integração pela interface. Os dados de configuração ficam em uma tabela aditiva.
 
-Teste o transporte com dois clientes, incluindo o bot entrando com alguém já no canal e a saída e reentrada de um participante. O canal de voz exige DAVE e mídia UDP. Verifique o bip nos dois clientes e a resposta para cada falante, além de falar antes de optar pela participação, comandos contínuos, sobreposição e desconexão durante um turno. [Discord Voice](https://docs.discord.com/developers/topics/voice-connections) · [Recepção de áudio do discord.js](https://discord.js.org/docs/packages/voice/0.19.2/VoiceReceiver:Class)
+Teste com duas contas no mesmo canal. Envie duas perguntas seguidas pela primeira conta e uma pela segunda. Confira a resposta em voz, a continuidade da primeira conversa e a separação das mensagens e memórias da segunda conta. [Comandos de aplicativo do Discord](https://docs.discord.com/developers/docs/interactions/slash-commands)
 

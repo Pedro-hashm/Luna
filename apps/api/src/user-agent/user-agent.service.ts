@@ -32,6 +32,7 @@ export class UserAgentService {
       currentMessageId: state.currentMessageId,
       currentDateTime: state.currentDateTime,
       recentMessages: state.recentMessages,
+      ...(state.discordParticipant && { discordParticipant: state.discordParticipant }),
       memory: state.memory,
       preferences: state.preferences,
       runtime: state.runtime,

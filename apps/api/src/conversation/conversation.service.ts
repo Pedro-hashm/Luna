@@ -25,6 +25,7 @@ import { EvidenceService } from '../evidence/evidence.service';
 import type { PublicConversationEvidence } from '../evidence/evidence.types';
 import { UserAgentService } from '../user-agent/user-agent.service';
 import type {
+  DiscordParticipant,
   RuntimeMessage,
   UserAgentRunResult,
 } from '../user-agent/types/user-agent.types';
@@ -73,7 +74,6 @@ export class ConversationService {
     username: string;
     transcript: string;
     owner: boolean;
-    inputMode?: 'text' | 'voice';
   }): Promise<SendMessageResponse> {
     const sourceKey = `${input.guildId}:${input.sessionId}:${input.userId}`;
     const memoryScope = input.owner ? 'global' : `discord:${input.guildId}:${input.userId}`;
@@ -101,9 +101,12 @@ export class ConversationService {
     if (conversation.memoryScope !== memoryScope) {
       conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { memoryScope } });
     }
-    return this.processMessage(conversation.id, input.transcript, {
-      inputMode: input.inputMode ?? 'voice', outputMode: 'voice',
-    });
+    return this.processMessage(
+      conversation.id,
+      input.transcript,
+      { inputMode: 'text', outputMode: 'voice' },
+      { displayName: input.username, isOwner: input.owner },
+    );
   }
 
   async listConversations(): Promise<ConversationListItemResponse[]> {
@@ -201,6 +204,7 @@ export class ConversationService {
     conversationId: string | undefined,
     content: string,
     modes?: { inputMode?: 'text' | 'voice'; outputMode?: 'text' | 'voice' },
+    discordParticipant?: DiscordParticipant,
   ): Promise<SendMessageResponse> {
     const inputMode = modes?.inputMode ?? 'text';
     const outputMode = modes?.outputMode ?? 'text';
@@ -296,8 +300,9 @@ export class ConversationService {
         currentDateTime,
         recentMessages,
         outputMode,
-          memoryScope: conversation.memoryScope,
-          conversationSource: conversation.source,
+        memoryScope: conversation.memoryScope,
+        conversationSource: conversation.source,
+        ...(discordParticipant && { discordParticipant }),
       });
     } catch (error) {
       const completedAt = new Date();

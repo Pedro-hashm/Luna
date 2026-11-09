@@ -151,11 +151,10 @@ export class DiscordVoiceService {
     }
     const transcript = input.transcript;
     if (typeof transcript !== 'string' || !transcript.trim() || transcript.length > 1_200) {
-      throw new BadRequestException('Não reconheci uma fala válida para responder.');
+      throw new BadRequestException('Informe uma pergunta de texto válida.');
     }
-    const inputMode = input.inputMode === undefined ? 'voice' : input.inputMode;
-    if (inputMode !== 'voice' && inputMode !== 'text') {
-      throw new BadRequestException('O modo de entrada do turno é inválido.');
+    if (input.inputMode !== undefined && input.inputMode !== 'text') {
+      throw new BadRequestException('A integração com o Discord aceita apenas perguntas de texto.');
     }
     const configuration = await this.configuration();
     if (!configuration.enabled || configuration.guildId !== guildId) {
@@ -163,7 +162,7 @@ export class DiscordVoiceService {
     }
     const response = await this.conversations.addDiscordMessage({
       guildId, userId, sessionId, username: username.trim(), transcript: transcript.trim(),
-      owner: configuration.ownerDiscordUserId === userId, inputMode,
+      owner: configuration.ownerDiscordUserId === userId,
     });
     const audio = await this.voiceSynthesis.synthesizeText(
       response.messages[1].content,

@@ -40,10 +40,10 @@ describe('ConversationContextService', () => {
 
   it.each(['before', 'after', 'both'] as const)('expands deterministically in the %s direction', async (direction) => {
     const harness = createHarness();
-    const result = await harness.service.expand('ev_1', direction, { messages: [] });
+    const result = await harness.service.expand('ev_1', direction, { messages: [], memoryScope: 'global' });
 
     expect(harness.evidence.resolvePublicId).toHaveBeenCalledWith('ev_1');
-    expect(harness.source.expandEvidenceReference).toHaveBeenCalledWith(reference, direction, 5);
+    expect(harness.source.expandEvidenceReference).toHaveBeenCalledWith(reference, direction, 5, 'global');
     expect(result).toMatchObject({ evidence_id: 'ev_1', direction, resultCount: 1 });
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain(reference.conversationId);

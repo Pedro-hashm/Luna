@@ -76,6 +76,19 @@ describe('OrchestratorService', () => {
     expect(harness.execute).not.toHaveBeenCalled();
   });
 
+  it.each(['conversation_retrieval', 'conversation_context'])('blocks a Discord guest from forcing %s', async tool => {
+    const harness = createHarness([llmResponse(JSON.stringify({
+      type: 'tool_call', tool, arguments: { query: 'private chat', evidence_id: 'ev_1' },
+    }))]);
+    const context = orchestratorContext();
+    context.runtime.memoryScope = 'discord:42:99';
+
+    const result = await harness.service.execute(context);
+
+    expect(harness.execute).not.toHaveBeenCalled();
+    expect(result.decisions).toContainEqual({ iteration: 1, type: 'tool_call', tool, status: 'rejected' });
+  });
+
   it('returns structured semantic validation feedback to the model', async () => {
     const harness = createHarness([
       llmResponse(

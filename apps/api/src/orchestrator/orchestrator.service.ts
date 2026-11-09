@@ -44,10 +44,11 @@ export class OrchestratorService {
 
   async execute(context: OrchestratorContext): Promise<OrchestratorResult> {
     const settings = await this.settingsService.getApplicationSettings();
+    const scopedHistory = typeof context.runtime.memoryScope === 'string' && context.runtime.memoryScope !== 'global';
     const tools = this.toolRegistry.describe().filter(
       (tool) =>
-        (tool.name !== 'conversation_retrieval' || context.runtime.memoryScope === 'global') &&
-        (tool.name !== 'conversation_context' || settings.conversationEvidenceEnabled) &&
+        (tool.name !== 'conversation_retrieval' || !scopedHistory) &&
+        (tool.name !== 'conversation_context' || (!scopedHistory && settings.conversationEvidenceEnabled)) &&
         (tool.name !== 'web_research' || settings.researchEnabled !== false) &&
         (!isMemoryTool(tool.name) || (
           context.runtime.memoryEnabled === true &&
@@ -159,6 +160,11 @@ export class OrchestratorService {
         decision,
         settings.orchestratorToolResultMaxTokens,
       );
+
+      if (scopedHistory && (toolDecision.tool === 'conversation_retrieval' || toolDecision.tool === 'conversation_context')) {
+        decisions.push({ iteration, type: 'tool_call', tool: toolDecision.tool, status: 'rejected' });
+        return this.result(context, toolExecutions, decisions, iteration, DEFAULT_FINAL_INSTRUCTIONS);
+      }
 
       if (toolDecision.tool === 'conversation_context' && !settings.conversationEvidenceEnabled) {
         decisions.push({ iteration, type: 'tool_call', tool: toolDecision.tool, status: 'rejected' });

@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY worker.mjs voice-room.mjs providers.mjs ./
+COPY worker.mjs commands.mjs voice-room.mjs providers.mjs ./
 USER node
 CMD ["node", "worker.mjs"]
 

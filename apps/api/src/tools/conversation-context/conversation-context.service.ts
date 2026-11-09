@@ -20,7 +20,7 @@ export class ConversationContextService {
   async expand(
     evidenceId: string,
     direction: ConversationContextDirection,
-    _context: ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Promise<ConversationContextResult> {
     const startedAt = Date.now();
     const settings = await this.settingsService.getApplicationSettings();
@@ -34,7 +34,7 @@ export class ConversationContextService {
     }
 
     const expanded = await Promise.all(evidence.sourceReferences.map((reference) =>
-      this.source.expandEvidenceReference(reference, direction, 5),
+      this.source.expandEvidenceReference(reference, direction, 5, context.memoryScope),
     ));
     const messages = new Map<string, { id: string; role: string; content: string; createdAt: Date }>();
     for (const group of expanded) {

@@ -36,6 +36,9 @@ export class ToolsService {
     const requestId = request.requestId ?? randomUUID();
     const context = await this.normalizeContext(request.context);
     context.requestId = requestId;
+    const memoryScope = origin === 'conversation'
+      ? this.optionalString(request.context?.memoryScope) ?? 'global'
+      : 'global';
     const input = {
       ...rawInput,
     };
@@ -49,7 +52,7 @@ export class ToolsService {
     );
 
     try {
-      const result = await this.toolRegistry.execute(tool, input, context);
+      const result = await this.toolRegistry.execute(tool, input, { ...context, memoryScope });
       const retrievalDiagnostics = 'query' in result ? result.__retrievalDiagnostics : undefined;
       const conversationDiagnostics = 'query' in result ? result.__conversationDiagnostics : undefined;
       const evidenceDiagnostics = 'evidence_id' in result ? result.__evidenceDiagnostics : undefined;

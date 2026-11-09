@@ -27,7 +27,7 @@ describe('DiscordVoiceService worker turns', () => {
     );
   });
 
-  it('saves the recognized turn in Luna and synthesizes it with the configured voice', async () => {
+  it('saves the typed turn in Luna and synthesizes it with the configured voice', async () => {
     const result = await service.processWorkerTurn({
       guildId: '42', userId: '100', sessionId: 'f57dff0d-6228-4dc5-9678-a18ea54d385d',
       username: 'Pedro', transcript: 'Qual é meu jogo favorito?',
@@ -41,30 +41,31 @@ describe('DiscordVoiceService worker turns', () => {
     expect(result).toEqual({ audio, mimeType: 'audio/mpeg' });
   });
 
-  it('assigns a guest to a non-owner identity', async () => {
+  it('assigns a guest to a non-owner identity even with the owner display name', async () => {
     await service.processWorkerTurn({
       guildId: '42', userId: '101', sessionId: 'f57dff0d-6228-4dc5-9678-a18ea54d385d',
-      username: 'Convidado', transcript: 'Oi, Luna.',
+      username: 'Pedro', transcript: 'Oi, Luna.',
     });
     expect(addDiscordMessage).toHaveBeenCalledWith(expect.objectContaining({ owner: false }));
   });
 
-  it('preserves typed query mode while still synthesizing the answer', async () => {
+  it('accepts the worker’s explicit text input mode', async () => {
     await service.processWorkerTurn({
       guildId: '42', userId: '100', sessionId: 'f57dff0d-6228-4dc5-9678-a18ea54d385d',
       username: 'Pedro', transcript: 'Resuma a conversa.', inputMode: 'text',
     });
     expect(addDiscordMessage).toHaveBeenCalledWith(expect.objectContaining({
-      transcript: 'Resuma a conversa.', inputMode: 'text', owner: true,
+      transcript: 'Resuma a conversa.', owner: true,
     }));
     expect(synthesizeText).toHaveBeenCalledWith('Resposta sintética.', expect.any(AbortSignal));
   });
 
-  it('rejects unsupported input modes', async () => {
+  it.each(['voice', 'command'])('rejects %s input', async inputMode => {
     await expect(service.processWorkerTurn({
       guildId: '42', userId: '100', sessionId: 'f57dff0d-6228-4dc5-9678-a18ea54d385d',
-      username: 'Pedro', transcript: 'Resuma a conversa.', inputMode: 'command',
-    })).rejects.toThrow('O modo de entrada do turno é inválido.');
+      username: 'Pedro', transcript: 'Resuma a conversa.', inputMode,
+    })).rejects.toThrow('A integração com o Discord aceita apenas perguntas de texto.');
+    expect(addDiscordMessage).not.toHaveBeenCalled();
   });
 
   it('rejects turns from servers outside the configured integration', async () => {

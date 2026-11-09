@@ -39,7 +39,7 @@ describe('ConversationService Discord persistence', () => {
     } as never);
   });
 
-  it('creates one voice conversation per Discord person per call with a private guest memory scope', async () => {
+  it('creates a guest conversation with text input, spoken output and a private memory scope', async () => {
     await service.addDiscordMessage({
       guildId: '42', userId: '99', sessionId, username: 'Alice', transcript: 'Oi, Luna.', owner: false,
     });
@@ -48,7 +48,10 @@ describe('ConversationService Discord persistence', () => {
       title: 'Discord · Alice', source: 'discord', memoryScope: 'discord:42:99',
       sourceKey: `42:${sessionId}:99`, sourceUserId: '99', sourceGuildId: '42',
     } });
-    expect(processMessage).toHaveBeenCalledWith(conversationId, 'Oi, Luna.', { inputMode: 'voice', outputMode: 'voice' });
+    expect(processMessage).toHaveBeenCalledWith(
+      conversationId, 'Oi, Luna.', { inputMode: 'text', outputMode: 'voice' },
+      { displayName: 'Alice', isOwner: false },
+    );
   });
 
   it('maps the configured owner to global memory and updates the identity on an existing call', async () => {
@@ -59,16 +62,26 @@ describe('ConversationService Discord persistence', () => {
     });
 
     expect(update).toHaveBeenCalledWith({ where: { id: conversationId }, data: { memoryScope: 'global' } });
-    expect(processMessage).toHaveBeenCalledWith(conversationId, 'Minha memória.', { inputMode: 'voice', outputMode: 'voice' });
+    expect(processMessage).toHaveBeenCalledWith(
+      conversationId, 'Minha memória.', { inputMode: 'text', outputMode: 'voice' },
+      { displayName: 'Pedro', isOwner: true },
+    );
   });
 
-  it('stores a typed Discord query as text input while keeping the reply voice-enabled', async () => {
-    await service.addDiscordMessage({
-      guildId: '42', userId: '99', sessionId, username: 'Alice', transcript: 'Resuma a conversa.',
-      owner: false, inputMode: 'text',
+  it('keeps accounts with the same display name separate', async () => {
+    const otherConversationId = '00000000-0000-4000-8000-000000000003';
+    create.mockResolvedValueOnce(baseConversation).mockResolvedValueOnce({
+      ...baseConversation, id: otherConversationId, sourceUserId: '101', memoryScope: 'discord:42:101',
     });
-    expect(processMessage).toHaveBeenCalledWith(conversationId, 'Resuma a conversa.', {
-      inputMode: 'text', outputMode: 'voice',
-    });
+    const input = { guildId: '42', sessionId, username: 'Alice', transcript: 'Qual é minha cor preferida?', owner: false };
+
+    await service.addDiscordMessage({ ...input, userId: '99' });
+    await service.addDiscordMessage({ ...input, userId: '101' });
+
+    expect(create.mock.calls.map(([{ data }]) => [data.sourceKey, data.memoryScope])).toEqual([
+      [`42:${sessionId}:99`, 'discord:42:99'],
+      [`42:${sessionId}:101`, 'discord:42:101'],
+    ]);
+    expect(processMessage.mock.calls.map(([id]) => id)).toEqual([conversationId, otherConversationId]);
   });
 });
