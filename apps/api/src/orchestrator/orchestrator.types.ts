@@ -1,4 +1,4 @@
-import type { RuntimeMessage } from '../user-agent/types/user-agent.types';
+import type { DiscordParticipant, RuntimeMessage } from '../user-agent/types/user-agent.types';
 import type { ToolExecutionError, ToolExecutionResult } from '../tools/types/tool.types';
 import type { ConversationEvidenceReference } from '../tools/conversation-retrieval/types/conversation-retrieval.types';
 import type { FixedMemory } from '../memory/memory-context';
@@ -10,6 +10,7 @@ export type OrchestratorContext = {
   currentMessageId: string;
   currentDateTime: string;
   recentMessages: RuntimeMessage[];
+  discordParticipant?: DiscordParticipant;
   memory: FixedMemory;
   preferences: Record<string, unknown>;
   runtime: Record<string, unknown>;

@@ -383,14 +383,6 @@ services:
       LUNA_API_URL: http://api:8000
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
       DISCORD_VOICE_WORKER_SECRET: ${DISCORD_VOICE_WORKER_SECRET:-}
-      WAKEWORD_BASE_URL: http://wakeword:8765
-      SPEACHES_BASE_URL: http://speaches:8000
-      SPEACHES_STT_MODEL: ${SPEACHES_STT_MODEL:-Systran/faster-whisper-small}
-      OLLAMA_BASE_URL: http://ollama:11434
-      KOKORO_BASE_URL: http://kokoro:8000
-      LUNA_DISCORD_OLLAMA_MODEL: ${LUNA_DISCORD_OLLAMA_MODEL:-qwen3:4b-instruct}
-      LUNA_DISCORD_KOKORO_VOICE: ${LUNA_DISCORD_KOKORO_VOICE:-pf_dora}
-      LUNA_DISCORD_WAKE_THRESHOLD: ${LUNA_DISCORD_WAKE_THRESHOLD:-0.65}
     depends_on:
       api:
         condition: service_healthy

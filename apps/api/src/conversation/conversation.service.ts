@@ -25,6 +25,7 @@ import { EvidenceService } from '../evidence/evidence.service';
 import type { PublicConversationEvidence } from '../evidence/evidence.types';
 import { UserAgentService } from '../user-agent/user-agent.service';
 import type {
+  DiscordParticipant,
   RuntimeMessage,
   UserAgentRunResult,
 } from '../user-agent/types/user-agent.types';
@@ -64,6 +65,48 @@ export class ConversationService {
     modes?: { inputMode?: 'text' | 'voice'; outputMode?: 'text' | 'voice' },
   ): Promise<SendMessageResponse> {
     return this.processMessage(conversationId, content, modes);
+  }
+
+  async addDiscordMessage(input: {
+    guildId: string;
+    userId: string;
+    sessionId: string;
+    username: string;
+    transcript: string;
+    owner: boolean;
+  }): Promise<SendMessageResponse> {
+    const sourceKey = `${input.guildId}:${input.sessionId}:${input.userId}`;
+    const memoryScope = input.owner ? 'global' : `discord:${input.guildId}:${input.userId}`;
+    let conversation = await this.prisma.conversation.findUnique({ where: { sourceKey } });
+    if (!conversation) {
+      try {
+        conversation = await this.prisma.conversation.create({
+          data: {
+            title: `Discord · ${input.username}`.slice(0, 100),
+            source: 'discord', memoryScope, sourceKey,
+            sourceUserId: input.userId, sourceGuildId: input.guildId,
+          },
+        });
+      } catch (error) {
+        // A duplicate can only be the same participant's concurrent turn in
+        // this call. Reuse that conversation rather than starting another.
+        conversation = await this.prisma.conversation.findUnique({ where: { sourceKey } });
+        if (!conversation) throw error;
+      }
+    }
+    if (conversation.source !== 'discord' || conversation.sourceUserId !== input.userId ||
+        conversation.sourceGuildId !== input.guildId) {
+      throw new BadRequestException('A sessão do Discord não corresponde a esta pessoa.');
+    }
+    if (conversation.memoryScope !== memoryScope) {
+      conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: { memoryScope } });
+    }
+    return this.processMessage(
+      conversation.id,
+      input.transcript,
+      { inputMode: 'text', outputMode: 'voice' },
+      { displayName: input.username, isOwner: input.owner },
+    );
   }
 
   async listConversations(): Promise<ConversationListItemResponse[]> {
@@ -161,6 +204,7 @@ export class ConversationService {
     conversationId: string | undefined,
     content: string,
     modes?: { inputMode?: 'text' | 'voice'; outputMode?: 'text' | 'voice' },
+    discordParticipant?: DiscordParticipant,
   ): Promise<SendMessageResponse> {
     const inputMode = modes?.inputMode ?? 'text';
     const outputMode = modes?.outputMode ?? 'text';
@@ -256,6 +300,9 @@ export class ConversationService {
         currentDateTime,
         recentMessages,
         outputMode,
+        memoryScope: conversation.memoryScope,
+        conversationSource: conversation.source,
+        ...(discordParticipant && { discordParticipant }),
       });
     } catch (error) {
       const completedAt = new Date();
@@ -302,7 +349,9 @@ export class ConversationService {
       outputMode,
     };
     const assistantMessage = this.memory
-      ? await this.memory.persistAnswer(data, userMessage.id, userMessage.content, execution.luna.memory.recalls)
+      ? await this.memory.persistAnswer(
+          data, userMessage.id, userMessage.content, execution.luna.memory.recalls, conversation.memoryScope,
+        )
       : await this.prisma.message.create({ data });
     const persistenceStageMs = Date.now() - persistenceStartedAt;
 

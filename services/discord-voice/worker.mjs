@@ -1,34 +1,25 @@
+import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import {
   ChannelType, Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits,
-  SlashCommandBuilder,
 } from 'discord.js';
 import {
-  AudioPlayerStatus, EndBehaviorType, NoSubscriberBehavior, StreamType, VoiceConnectionStatus,
+  AudioPlayerStatus, NoSubscriberBehavior, StreamType, VoiceConnectionStatus,
   createAudioPlayer, createAudioResource, entersState, joinVoiceChannel,
 } from '@discordjs/voice';
-import OpusScript from 'opusscript';
+import { commands, readQuestion } from './commands.mjs';
 import { createProviders, localBase, readControlSettings } from './providers.mjs';
-import { downsampleDiscordPcm, VoiceRoom, wakeChime } from './voice-room.mjs';
+import { VoiceRoom } from './voice-room.mjs';
 
 const api = localBase(process.env.LUNA_API_URL || 'http://api:8000');
 const secret = (process.env.DISCORD_VOICE_WORKER_SECRET ?? '').trim();
 const token = (process.env.DISCORD_BOT_TOKEN ?? '').trim();
 const providers = createProviders();
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
-const commands = new SlashCommandBuilder()
-  .setName('luna')
-  .setDescription('Usa a Luna no canal de voz configurado')
-  .addSubcommand(command => command.setName('entrar').setDescription('Conecta a Luna ao canal de voz'))
-  .addSubcommand(command => command.setName('participar').setDescription('Autoriza escuta temporária para chamar a Luna'))
-  .addSubcommand(command => command.setName('parar').setDescription('Encerra sua participação e apaga seu contexto da call'))
-  .addSubcommand(command => command.setName('sair').setDescription('Desconecta a Luna do canal de voz'));
-
 const log = event => console.info('[discord-voice] ' + event);
 const botPermissions = [
   PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak,
 ];
-const cue = wakeChime();
 let control = { enabled: false, guildId: null, channelId: null };
 let session;
 let commandGuild;
@@ -128,10 +119,10 @@ async function poll() {
   if (!stopped) pollTimer = setTimeout(poll, 5_000);
 }
 
-function play(player, data, inputType, signal) {
+function play(player, data, signal) {
   if (signal.aborted) return Promise.reject(new Error('cancelled'));
   return new Promise((resolve, reject) => {
-    const resource = createAudioResource(Readable.from([data]), { inputType });
+    const resource = createAudioResource(Readable.from([data]), { inputType: StreamType.Arbitrary });
     const finish = error => {
       clearTimeout(timer);
       player.off(AudioPlayerStatus.Idle, onIdle);
@@ -154,50 +145,11 @@ function play(player, data, inputType, signal) {
   });
 }
 
-function stopStream(current, userId) {
-  const stream = current.streams.get(userId);
-  if (!stream) return;
-  current.streams.delete(userId);
-  stream.destroy();
-}
-
-function dropParticipant(current, userId) {
-  current.room.remove(userId);
-  stopStream(current, userId);
-}
-
-function resetParticipants(current) {
-  current.room.reset();
-  for (const userId of current.streams.keys()) stopStream(current, userId);
-}
-
-function subscribe(current, userId) {
-  if (current.streams.has(userId) || !current.room.has(userId) ||
-      current.connection.state.status !== VoiceConnectionStatus.Ready) return;
-  const stream = current.connection.receiver.subscribe(userId, { end: { behavior: EndBehaviorType.Manual } });
-  const decoder = new OpusScript(48_000, 2, OpusScript.Application.VOIP);
-  current.streams.set(userId, stream);
-  stream.on('data', packet => {
-    try {
-      current.room.receive(userId, downsampleDiscordPcm(decoder.decode(packet)));
-    } catch {
-      stream.destroy();
-      log('opus_decode_failed');
-    }
-  });
-  stream.on('error', () => log('discord_receive_error'));
-  stream.once('close', () => {
-    decoder.delete();
-    if (current.streams.get(userId) === stream) current.streams.delete(userId);
-  });
-}
-
 function closeVoice() {
   const current = session;
   if (!current) return;
   session = undefined;
-  clearInterval(current.timer);
-  resetParticipants(current);
+  current.room.cancel();
   current.player.stop(true);
   if (current.connection.state.status !== VoiceConnectionStatus.Destroyed) current.connection.destroy();
 }
@@ -209,26 +161,26 @@ async function join(channel) {
   voiceFailed = false;
   const connection = joinVoiceChannel({
     guildId: channel.guild.id, channelId: channel.id,
-    adapterCreator: channel.guild.voiceAdapterCreator, selfDeaf: false, selfMute: false,
+    adapterCreator: channel.guild.voiceAdapterCreator, selfDeaf: true, selfMute: false,
   });
   const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Stop } });
   player.on('error', () => log('discord_playback_error'));
   const room = new VoiceRoom({
     providers, log,
-    playCue: signal => play(player, cue, StreamType.Raw, signal),
-    playReply: (audio, signal) => play(player, audio, StreamType.Arbitrary, signal),
-    stopPlayback: () => player.stop(true),
+    playReply: (audio, signal) => play(player, audio, signal),
   });
-  const current = { connection, player, room, streams: new Map(), timer: setInterval(() => room.tick(), 100) };
+  const current = { callId: randomUUID(), connection, player, room };
   session = current;
   connection.subscribe(player);
-  connection.receiver.speaking.on('start', userId => {
-    if (session === current) subscribe(current, userId);
-  });
   connection.on('stateChange', (before, after) => {
     if (session !== current) return;
-    if (before.status === VoiceConnectionStatus.Ready && after.status !== VoiceConnectionStatus.Ready) resetParticipants(current);
-    if (after.status === VoiceConnectionStatus.Destroyed) closeVoice();
+    if (after.status === VoiceConnectionStatus.Destroyed) {
+      closeVoice();
+      return;
+    }
+    if (before.status === VoiceConnectionStatus.Ready && after.status !== VoiceConnectionStatus.Ready) {
+      room.cancel();
+    }
     if (after.status === VoiceConnectionStatus.Disconnected) {
       void entersState(connection, VoiceConnectionStatus.Ready, 6_000).catch(() => {
         if (session === current) closeVoice();
@@ -251,7 +203,7 @@ async function join(channel) {
 client.on(Events.VoiceStateUpdate, (before, after) => {
   if (!session || after.guild.id !== control.guildId || before.channelId === after.channelId) return;
   if (after.id === client.user?.id && after.channelId !== control.channelId) closeVoice();
-  else if (after.channelId !== control.channelId) dropParticipant(session, after.id);
+  else if (after.channelId !== control.channelId) session.room.cancel(after.id);
 });
 
 client.on(Events.InteractionCreate, interaction => {
@@ -284,7 +236,7 @@ async function handleCommand(interaction) {
     }
     if (command === 'sair') {
       closeVoice();
-      await reply('A Luna saiu da call. O contexto temporário foi apagado.');
+      await reply('A Luna saiu da call.');
       return;
     }
     if (session) {
@@ -299,7 +251,7 @@ async function handleCommand(interaction) {
       return;
     }
     await join(selected);
-    await interaction.editReply('A Luna entrou. Cada pessoa que quiser falar com ela pode usar /luna participar.');
+    await interaction.editReply('A Luna entrou. Use /luna perguntar com o campo query. Ela identifica a sua conta do Discord e responde em voz para a call.');
     return;
   }
   const current = session;
@@ -307,18 +259,29 @@ async function handleCommand(interaction) {
     await reply('A Luna precisa estar conectada na call.');
     return;
   }
-  if (command === 'parar') {
-    dropParticipant(current, interaction.user.id);
-    await reply('Sua participação terminou e seu contexto temporário foi apagado.');
+  if (command !== 'perguntar' || interaction.user.bot) {
+    await reply('Use /luna perguntar com o campo query para enviar sua pergunta por escrito.');
     return;
   }
-  if (command !== 'participar' || interaction.user.bot) return;
-  if (!current.room.add(interaction.user.id)) {
-    await reply('O piloto aceita até quatro participantes por call. Tente quando houver uma vaga.');
+  const question = readQuestion(interaction, current.callId);
+  if (!question) {
+    await reply('Preencha o campo query com a sua pergunta.');
     return;
   }
-  subscribe(current, interaction.user.id);
-  await reply('Sua escuta temporária está ativa. Diga “Luna” para chamar. Todos ouvem o sinal e a resposta. O áudio e o contexto ficam em RAM até você sair ou usar /luna parar.');
+  const turn = current.room.askText(question);
+  if (!turn) {
+    await reply('A Luna já está processando uma pergunta. Tente novamente quando ela terminar.');
+    return;
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const outcome = await turn;
+  if (outcome === 'complete') {
+    await interaction.editReply('A Luna respondeu em voz à pergunta enviada pela sua conta.');
+  } else if (outcome === 'cancelled') {
+    await interaction.editReply('A resposta em voz foi interrompida porque a conexão com a call mudou.');
+  } else {
+    await interaction.editReply('A Luna não conseguiu concluir a resposta em voz. Confira a integração e tente novamente.');
+  }
 }
 
 client.on(Events.Error, () => log('discord_client_error'));

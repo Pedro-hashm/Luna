@@ -13,6 +13,6 @@ import { VoiceSynthesisService } from './voice-synthesis.service';
   imports: [PrismaModule, SettingsModule, ConversationModule],
   controllers: [VoiceController],
   providers: [VoiceService, VoiceSynthesisService, VoiceGateway, KokoroTtsProvider, QwenTtsProvider, FasterQwenTtsProvider, F5TtsProvider, FishAudioTtsProvider, SpeachesSttProvider, OpenWakeWordProvider, GuardedHttpClient],
-  exports: [VoiceGateway, VoiceService],
+  exports: [VoiceGateway, VoiceService, VoiceSynthesisService],
 })
 export class VoiceModule {}

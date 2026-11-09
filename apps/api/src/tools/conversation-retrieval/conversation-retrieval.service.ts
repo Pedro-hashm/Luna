@@ -25,6 +25,7 @@ import type {
 type NormalizedInput = {
   query?: string;
   scope: ConversationRetrievalScope;
+  memoryScope?: string;
   runtimeConversationId?: string;
   currentMessageId?: string;
   currentMessageCreatedAt?: Date;
@@ -235,6 +236,7 @@ export class ConversationRetrievalService {
 
   private toRetrievalFilters(input: NormalizedInput): Record<string, unknown> {
     return {
+      ...(input.memoryScope && { memoryScope: input.memoryScope }),
       includeConversationId:
         input.scope === 'current_conversation'
           ? input.runtimeConversationId
@@ -400,6 +402,7 @@ export class ConversationRetrievalService {
     return {
       query,
       scope,
+      memoryScope: context.memoryScope,
       runtimeConversationId,
       currentMessageId,
       currentMessageCreatedAt,
@@ -463,7 +466,10 @@ export class ConversationRetrievalService {
       if (!batch.length) break;
       batch.forEach((id) => visited.add(id));
       const found: TemporalRelationWithMessage[] = await this.prisma.temporalRelation.findMany({
-        where: { predecessorMessageId: { in: batch } },
+        where: {
+          predecessorMessageId: { in: batch },
+          ...(input.memoryScope && { successorMessage: { conversation: { memoryScope: input.memoryScope } } }),
+        },
         include: { predecessorMessage: true, successorMessage: true },
       });
       frontier = [];

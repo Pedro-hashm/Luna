@@ -4,6 +4,7 @@ export type DiscordVoiceSettings = {
   enabled: boolean;
   guildId: string | null;
   channelId: string | null;
+  ownerDiscordUserId: string | null;
   status: {
     state: "offline" | "missing_token" | "disabled" | "connecting" | "ready" | "in_channel" | "error";
     updatedAt: string | null;
@@ -15,7 +16,7 @@ export type DiscordVoiceSettings = {
   }>;
 };
 
-type DiscordVoiceUpdate = Partial<Pick<DiscordVoiceSettings, "enabled" | "guildId" | "channelId">>;
+type DiscordVoiceUpdate = Partial<Pick<DiscordVoiceSettings, "enabled" | "guildId" | "channelId" | "ownerDiscordUserId">>;
 
 const endpoint = "/api/discord-voice";
 

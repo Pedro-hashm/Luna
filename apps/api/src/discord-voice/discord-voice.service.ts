@@ -1,21 +1,23 @@
 import {
-  BadRequestException, ConflictException, Injectable, UnauthorizedException,
+  BadRequestException, ConflictException, ForbiddenException, Injectable, UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConversationService } from '../conversation/conversation.service';
+import { VoiceSynthesisService } from '../voice/voice-synthesis.service';
 
 const statusStates = ['offline', 'missing_token', 'disabled', 'connecting', 'ready', 'in_channel', 'error'] as const;
 const statusTtlMs = 30_000;
-const configurationFields = { enabled: true, guildId: true, channelId: true } as const;
+const configurationFields = { enabled: true, guildId: true, channelId: true, ownerDiscordUserId: true } as const;
 const maxSnowflake = (1n << 64n) - 1n;
 
 type State = (typeof statusStates)[number];
-type Configuration = { enabled: boolean; guildId: string | null; channelId: string | null };
+type Configuration = { enabled: boolean; guildId: string | null; channelId: string | null; ownerDiscordUserId: string | null };
 type Destination = { id: string; name: string; channels: Array<{ id: string; name: string }> };
 type WorkerStatus = { state: State; updatedAt: number; destinations: Destination[] };
 
-const initialConfiguration: Configuration = { enabled: false, guildId: null, channelId: null };
+const initialConfiguration: Configuration = { enabled: false, guildId: null, channelId: null, ownerDiscordUserId: null };
 
 function object(value: unknown, fields: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
@@ -62,7 +64,11 @@ function destinations(value: unknown): Destination[] {
 export class DiscordVoiceService {
   private workerStatus?: WorkerStatus;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conversations: ConversationService,
+    private readonly voiceSynthesis: VoiceSynthesisService,
+  ) {}
 
   async configuration(): Promise<Configuration> {
     return await this.prisma.discordVoiceSettings.findUnique({
@@ -75,12 +81,14 @@ export class DiscordVoiceService {
   }
 
   async updateSettings(value: unknown) {
-    const patch = object(value, ['enabled', 'guildId', 'channelId']);
+    const patch = object(value, ['enabled', 'guildId', 'channelId', 'ownerDiscordUserId']);
     if ('enabled' in patch && typeof patch.enabled !== 'boolean') {
       throw new BadRequestException('Informe se a integração está ativada.');
     }
     const guild = patch.guildId === undefined || patch.guildId === null ? patch.guildId : snowflake(patch.guildId);
     const channel = patch.channelId === undefined || patch.channelId === null ? patch.channelId : snowflake(patch.channelId);
+    const ownerDiscordUserId = patch.ownerDiscordUserId === undefined || patch.ownerDiscordUserId === null
+      ? patch.ownerDiscordUserId : snowflake(patch.ownerDiscordUserId);
 
     const configuration = await this.prisma.$transaction(async tx => {
       const current = await tx.discordVoiceSettings.findUnique({ where: { id: 1 }, select: configurationFields }) ??
@@ -91,7 +99,8 @@ export class DiscordVoiceService {
       if ((!guildId && channelId) || (enabled && (!guildId || !channelId))) {
         throw new BadRequestException('Selecione um servidor e um canal de voz para ativar o Discord.');
       }
-      const data = { enabled, guildId, channelId };
+      const ownerId = ownerDiscordUserId === undefined ? current.ownerDiscordUserId : ownerDiscordUserId;
+      const data = { enabled, guildId, channelId, ownerDiscordUserId: ownerId };
       return tx.discordVoiceSettings.upsert({
         where: { id: 1 }, create: { id: 1, ...data }, update: data, select: configurationFields,
       });
@@ -126,6 +135,40 @@ export class DiscordVoiceService {
     const previous = this.currentWorkerStatus(now);
     const visibleDestinations = report.destinations === undefined ? previous?.destinations ?? [] : destinations(report.destinations);
     this.workerStatus = { state, updatedAt: now, destinations: visibleDestinations };
+  }
+
+  async processWorkerTurn(value: unknown) {
+    const input = object(value, ['guildId', 'userId', 'sessionId', 'username', 'transcript', 'inputMode']);
+    const guildId = snowflake(input.guildId);
+    const userId = snowflake(input.userId);
+    const sessionId = input.sessionId;
+    if (typeof sessionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(sessionId)) {
+      throw new BadRequestException('A sessão de voz é inválida.');
+    }
+    const username = input.username;
+    if (typeof username !== 'string' || !username.trim() || username.length > 100) {
+      throw new BadRequestException('O nome do participante é inválido.');
+    }
+    const transcript = input.transcript;
+    if (typeof transcript !== 'string' || !transcript.trim() || transcript.length > 1_200) {
+      throw new BadRequestException('Informe uma pergunta de texto válida.');
+    }
+    if (input.inputMode !== undefined && input.inputMode !== 'text') {
+      throw new BadRequestException('A integração com o Discord aceita apenas perguntas de texto.');
+    }
+    const configuration = await this.configuration();
+    if (!configuration.enabled || configuration.guildId !== guildId) {
+      throw new ForbiddenException('A integração de voz não está ativa neste servidor.');
+    }
+    const response = await this.conversations.addDiscordMessage({
+      guildId, userId, sessionId, username: username.trim(), transcript: transcript.trim(),
+      owner: configuration.ownerDiscordUserId === userId,
+    });
+    const audio = await this.voiceSynthesis.synthesizeText(
+      response.messages[1].content,
+      AbortSignal.timeout(120_000),
+    );
+    return { audio: audio.audio, mimeType: audio.mimeType };
   }
 
   private currentWorkerStatus(now: number) {

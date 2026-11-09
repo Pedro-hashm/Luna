@@ -32,6 +32,7 @@ export class UserAgentService {
       currentMessageId: state.currentMessageId,
       currentDateTime: state.currentDateTime,
       recentMessages: state.recentMessages,
+      ...(state.discordParticipant && { discordParticipant: state.discordParticipant }),
       memory: state.memory,
       preferences: state.preferences,
       runtime: state.runtime,
@@ -46,7 +47,9 @@ export class UserAgentService {
         const previous = state.recentMessages.findLast(message => message.role === 'user' && message.id !== initial.currentMessageId);
         if (previous) state.runtime.previousMemoryReview = await this.memory.reviewStatus(previous.id);
       }
-      state.memory = await this.memory.fixed(initial.currentDateTime.slice(0, 10), settings);
+      state.memory = await this.memory.fixed(
+        initial.currentDateTime.slice(0, 10), settings, initial.memoryScope ?? 'global',
+      );
       orchestrator.context.memory = state.memory;
     }
     const lunaStartedAt = Date.now();
@@ -74,7 +77,12 @@ export class UserAgentService {
       recentMessages: [...initial.recentMessages],
       memory: { items: [] },
       preferences: {},
-      runtime: { outputMode: initial.outputMode ?? 'text' },
+      runtime: {
+        outputMode: initial.outputMode ?? 'text',
+        memoryScope: initial.memoryScope ?? 'global',
+        conversationSource: initial.conversationSource ?? 'web',
+        sharedVoiceChannel: initial.conversationSource === 'discord',
+      },
     };
   }
 }

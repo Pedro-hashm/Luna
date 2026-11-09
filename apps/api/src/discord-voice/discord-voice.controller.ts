@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, HttpCode, Patch, Post, StreamableFile } from '@nestjs/common';
 import { DiscordVoiceService } from './discord-voice.service';
 
 @Controller('discord-voice')
@@ -29,5 +29,13 @@ export class DiscordVoiceController {
   updateStatus(@Headers('authorization') authorization: string | undefined, @Body() input: unknown) {
     this.discordVoice.authorizeWorker(authorization);
     this.discordVoice.updateStatus(input);
+  }
+
+  @Post('worker/turn')
+  @Header('Cache-Control', 'no-store')
+  async workerTurn(@Headers('authorization') authorization: string | undefined, @Body() input: unknown) {
+    this.discordVoice.authorizeWorker(authorization);
+    const { audio, mimeType } = await this.discordVoice.processWorkerTurn(input);
+    return new StreamableFile(audio, { type: mimeType, disposition: 'inline' });
   }
 }

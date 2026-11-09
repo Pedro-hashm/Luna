@@ -1,6 +1,22 @@
 import { ToolsService } from './tools.service';
 
 describe('ToolsService observability', () => {
+  it('preserves the Discord account scope for an internal memory tool call', async () => {
+    const registry = {
+      has: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockResolvedValue({ memory: 'search', items: [] }),
+    };
+    const service = new ToolsService(registry as never, { recordTrace: jest.fn() } as never, {} as never);
+    const memoryScope = 'discord:42:99';
+    await service.execute({
+      tool: 'memory_search',
+      input: { query: 'jogo favorito' },
+      context: { currentDateTime: '2026-09-22T12:00:00-03:00', messages: [], memoryScope },
+    }, 'conversation');
+
+    expect(registry.execute).toHaveBeenCalledWith('memory_search', { query: 'jogo favorito' }, expect.objectContaining({ memoryScope }));
+  });
+
   it('persists the exact tool input, returned evidence, and retrieval trace', async () => {
     const diagnostics = {
       query: 'where did we discuss search?',

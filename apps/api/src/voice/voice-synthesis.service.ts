@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { F5TtsProvider, FasterQwenTtsProvider, FishAudioTtsProvider, KokoroTtsProvider, QwenTtsProvider } from './voice.providers';
+import { F5TtsProvider, FasterQwenTtsProvider, FishAudioTtsProvider, KokoroTtsProvider, pcm16ToWav, QwenTtsProvider } from './voice.providers';
 import { VoiceService } from './voice.service';
 
 const SEGMENT_SIZE = 2_000;
@@ -77,6 +77,47 @@ export class VoiceSynthesisService {
         event: 'chat.speech.completed', provider: provider.name, bytes: result.audio.length, latencyMs: Date.now() - started,
       }));
       return { ...result, next: segment.next };
+    } catch (error) {
+      if (signal.aborted) throw error;
+      this.logger.warn(JSON.stringify({ event: 'chat.speech.failed', latencyMs: Date.now() - started }));
+      throw new ServiceUnavailableException('Não foi possível gerar o áudio com a voz configurada.');
+    }
+  }
+
+  async synthesizeText(text: string, signal: AbortSignal) {
+    const spoken = forSpeech(text);
+    if (!spoken) throw new BadRequestException('Não há texto para sintetizar.');
+    signal.throwIfAborted();
+    const started = Date.now();
+    try {
+      const { provider, voiceId, speed, streaming } = await this.resolve();
+      let result: { audio: Buffer; mimeType: string };
+      if (streaming) {
+        const stream = await streaming.synthesizeStream(spoken, voiceId, speed, signal);
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        try {
+          for await (const chunk of stream.chunks) {
+            signal.throwIfAborted();
+            bytes += chunk.length;
+            if (bytes > 24 * 1024 * 1024) throw new Error('Speech response is too large');
+            chunks.push(chunk);
+          }
+        } catch (error) {
+          await stream.cancel();
+          throw error;
+        }
+        const pcm = Buffer.concat(chunks);
+        if (!pcm.length || pcm.length % 2) throw new Error('Invalid streamed PCM audio');
+        result = { audio: pcm16ToWav(pcm, stream.sampleRate), mimeType: 'audio/wav' };
+      } else {
+        result = await provider.synthesize(spoken, voiceId, speed, signal);
+      }
+      if (!result.audio.length) throw new Error('Empty audio');
+      this.logger.log(JSON.stringify({
+        event: 'chat.speech.completed', provider: provider.name, bytes: result.audio.length, latencyMs: Date.now() - started,
+      }));
+      return result;
     } catch (error) {
       if (signal.aborted) throw error;
       this.logger.warn(JSON.stringify({ event: 'chat.speech.failed', latencyMs: Date.now() - started }));

@@ -1,171 +1,131 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setImmediate as next } from 'node:timers/promises';
-import { downsampleDiscordPcm, VoiceRoom, wakeChime, withoutWakeWord } from './voice-room.mjs';
-import { localBase, pcmWave, readControlSettings } from './providers.mjs';
+import test from 'node:test';
+import { commands, readQuestion } from './commands.mjs';
+import { createProviders, localBase, readControlSettings } from './providers.mjs';
+import { VoiceRoom } from './voice-room.mjs';
 
-function frame(value) {
-  const pcm = Buffer.alloc(2_560);
-  for (let i = 0; i < pcm.length; i += 2) pcm.writeInt16LE(value, i);
-  return pcm;
+const callId = '550e8400-e29b-41d4-a716-446655440000';
+const audio = Buffer.from('mp3-audio');
+
+function interaction(userId, query) {
+  return {
+    guildId: '42',
+    user: { id: userId, globalName: 'Nome global', username: 'conta' },
+    member: { displayName: 'Mesmo apelido' },
+    options: {
+      getString(name) {
+        assert.equal(name, 'query');
+        return query;
+      },
+    },
+  };
 }
 
 function setup(overrides = {}) {
-  let time = 0;
-  const events = [];
-  const providers = {
-    detect: async () => true,
-    reset: async () => {},
-    transcribe: async pcm => { events.push({ pcm }); return 'Luna, tudo bem?'; },
-    answer: async (command, history) => { events.push({ command, history }); return 'Tudo bem.'; },
-    synthesize: async () => Buffer.from('audio'),
-    ...overrides,
-  };
+  const replies = [];
   const room = new VoiceRoom({
-    providers,
-    now: () => time,
-    playCue: async () => events.push('cue'),
-    playReply: async () => events.push('reply'),
-    stopPlayback: () => events.push('stop'),
+    providers: { answer: async () => audio },
+    playReply: async data => replies.push(data),
+    ...overrides,
   });
-  return {
-    events,
-    room,
-    advance(ms) { time += ms; },
-  };
+  return { room, replies };
 }
 
-test('first confirmed user owns the cue and command despite overlap', async () => {
-  const pending = [];
-  const { events, room, advance } = setup({ detect: () => new Promise(resolve => pending.push(resolve)) });
-  room.add('alice');
-  room.add('bob');
-  room.receive('guest', frame(7_000));
-  room.receive('bob', frame(-7_000));
-  room.receive('alice', frame(5_000));
-  assert.equal(pending.length, 2);
-  pending[1](true);
-  await next();
-  pending[0](true);
-  await next();
-  assert.deepEqual(events, ['cue']);
-  for (let i = 0; i < 4; i++) {
-    advance(80);
-    room.receive('bob', frame(-7_000));
-    room.receive('alice', frame(5_000));
-  }
-  advance(950);
-  room.tick();
-  await next();
-  assert.equal(events.filter(event => event === 'reply').length, 1);
-  const { pcm } = events.find(event => event.pcm);
-  assert.equal(pcm.length, 5 * 2_560);
-  for (let i = 0; i < pcm.length; i += 2) assert.equal(pcm.readInt16LE(i), 5_000);
+test('the Discord command offers only enter, leave and written questions with a required query', () => {
+  const { options } = commands.toJSON();
+  assert.deepEqual(options.map(option => option.name), ['entrar', 'perguntar', 'sair']);
+  const [query] = options.find(option => option.name === 'perguntar').options;
+  assert.equal(query.name, 'query');
+  assert.equal(query.required, true);
+  assert.equal(query.max_length, 1_200);
+  assert.equal(readQuestion(interaction('99', null), callId), undefined);
+  assert.equal(readQuestion(interaction('99', '   '), callId), undefined);
+  assert.equal(readQuestion(interaction('99', 'a'.repeat(1_201)), callId), undefined);
 });
 
-test('Wake alone times out without triggering a model reply', async () => {
-  let first = true;
-  const { events, room, advance } = setup({
-    transcribe: async () => {
-      if (!first) return 'Luna, tudo bem?';
-      first = false;
-      return 'Luna.';
+test('two members with the same nickname submit separate questions under their Discord IDs', async () => {
+  const requests = [];
+  const { room, replies } = setup({
+    providers: { answer: async (text, context) => { requests.push({ text, context }); return audio; } },
+  });
+  assert.equal(await room.askText(readQuestion(interaction('99', ' Primeira pergunta. '), callId)), 'complete');
+  assert.equal(await room.askText(readQuestion(interaction('100', 'Sou a conta 99.'), callId)), 'complete');
+  assert.deepEqual(requests.map(({ text, context }) => [text, context.userId, context.username]), [
+    ['Primeira pergunta.', '99', 'Mesmo apelido'],
+    ['Sou a conta 99.', '100', 'Mesmo apelido'],
+  ]);
+  assert.ok(requests.every(({ context }) => context.conversationSessionId === callId));
+  assert.deepEqual(replies, [audio, audio]);
+});
+
+test('the worker accepts one question at a time and cancels only for the author leaving', async () => {
+  let resolveAudio;
+  let requestSignal;
+  const { room, replies } = setup({
+    providers: {
+      answer: async (_query, _context, signal) => {
+        requestSignal = signal;
+        return new Promise(resolve => { resolveAudio = resolve; });
+      },
     },
   });
-  room.add('alice');
-  room.receive('alice', frame(5_000));
-  await next();
-  advance(5_200);
-  room.tick();
-  await next();
-  assert.deepEqual(events, ['cue']);
-  assert.equal(room.turn, undefined);
-  room.receive('alice', frame(5_000));
-  await next();
-  for (let i = 0; i < 3; i++) {
-    advance(80);
-    room.receive('alice', frame(5_000));
-  }
-  advance(950);
-  room.tick();
-  await next();
-  assert.equal(events.filter(event => event === 'cue').length, 2);
-  assert.equal(events.filter(event => event === 'reply').length, 1);
+  const first = room.askText(readQuestion(interaction('99', 'Primeira pergunta'), callId));
+  room.cancel('100');
+  assert.equal(requestSignal.aborted, false);
+  assert.equal(room.askText(readQuestion(interaction('100', 'Segunda pergunta'), callId)), undefined);
+  room.cancel('99');
+  assert.equal(requestSignal.aborted, true);
+  resolveAudio(audio);
+  assert.equal(await first, 'cancelled');
+  assert.deepEqual(replies, []);
 });
 
-test('a pause after the cue preserves the capture window and only shares own context', async () => {
-  const { events, room, advance } = setup();
-  room.add('alice');
-  room.add('bob');
-  room.receive('alice', frame(5_000));
-  await next();
-  advance(1_700);
-  room.tick();
-  assert.deepEqual(events, ['cue']);
-  for (let i = 0; i < 3; i++) {
-    advance(80);
-    room.receive('alice', frame(5_000));
-  }
-  advance(950);
-  room.tick();
-  await next();
-  assert.equal(events.filter(event => event === 'reply').length, 1);
-  room.receive('bob', frame(4_000));
-  await next();
-  for (let i = 0; i < 3; i++) {
-    advance(80);
-    room.receive('bob', frame(4_000));
-  }
-  advance(950);
-  room.tick();
-  await next();
-  assert.deepEqual(events.filter(event => event.command).map(event => event.history), [[], []]);
-});
-
-test('leaving while STT is running cancels reply and discards participant context', async () => {
-  let finish;
-  let cancelled;
-  const { events, room, advance } = setup({
-    transcribe: async (_pcm, signal) => {
-      cancelled = signal;
-      return await new Promise(resolve => { finish = resolve; });
+test('the worker releases the turn when synthesis fails', async () => {
+  const { room, replies } = setup({
+    providers: {
+      answer: async (_query, { userId }) => {
+        if (userId === '99') throw new Error('synthesis unavailable');
+        return audio;
+      },
     },
   });
-  room.add('alice');
-  room.receive('alice', frame(5_000));
-  await next();
-  advance(5_200);
-  room.tick();
-  room.remove('alice');
-  assert.equal(cancelled.aborted, true);
-  assert.equal(room.has('alice'), false);
-  finish('Luna, diga algo.');
-  await next();
-  assert.deepEqual(events, ['cue', 'stop']);
+  assert.equal(await room.askText(readQuestion(interaction('99', 'Primeira pergunta'), callId)), 'error');
+  assert.equal(await room.askText(readQuestion(interaction('100', 'Segunda pergunta'), callId)), 'complete');
+  assert.deepEqual(replies, [audio]);
 });
 
-test('worker configuration accepts only valid selected IDs and local provider URLs', () => {
+test('worker configuration validates the configured destination and local API URL', () => {
   assert.deepEqual(readControlSettings({ enabled: true, guildId: '42', channelId: '99' }),
     { enabled: true, guildId: '42', channelId: '99' });
   assert.throws(() => readControlSettings({ enabled: true, guildId: '42', channelId: null }));
   assert.throws(() => readControlSettings({ enabled: false, guildId: '18446744073709551616', channelId: null }));
   assert.throws(() => localBase('https://discord.com'));
   assert.throws(() => localBase('http://user@api'));
-  assert.throws(() => localBase('http://speaches:8000/private'));
-  assert.equal(localBase('http://speaches:8000'), 'http://speaches:8000');
+  assert.throws(() => localBase('http://api:8000/private'));
+  assert.equal(localBase('http://api:8000'), 'http://api:8000');
 });
 
-test('PCM conversion, cue and keyword parsing keep the voice contract', () => {
-  const sample = Buffer.alloc(12);
-  for (let i = 0; i < sample.length; i += 2) sample.writeInt16LE(i * 100, i);
-  assert.equal(downsampleDiscordPcm(sample).readInt16LE(), 500);
-  assert.equal(wakeChime().length, 40_320);
-  const wave = pcmWave(frame(1_000));
-  assert.equal(wave.readUInt32LE(24), 16_000);
-  assert.equal(wave.readUInt16LE(22), 1);
-  assert.equal(wave.readUInt32LE(40), 2_560);
-  assert.equal(withoutWakeWord('Luna, diga oi.'), 'diga oi.');
-  assert.equal(withoutWakeWord('aluna passou'), undefined);
-  assert.equal(withoutWakeWord('Luna.'), '');
+test('the written question and Discord identity go to Luna and its audio comes back', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response(audio, { headers: { 'content-type': 'audio/mpeg' } });
+  };
+  const providers = createProviders({
+    LUNA_API_URL: 'http://api:8000',
+    DISCORD_VOICE_WORKER_SECRET: 'test-secret',
+  });
+  const { room, replies } = setup({ providers });
+  assert.equal(await room.askText(readQuestion(interaction('99', 'Qual é meu jogo favorito?'), callId)), 'complete');
+  assert.equal(requests.length, 1);
+  const [{ url, options }] = requests;
+  assert.equal(url, 'http://api:8000/discord-voice/worker/turn');
+  assert.equal(options.headers.authorization, 'Bearer test-secret');
+  assert.deepEqual(JSON.parse(options.body), {
+    guildId: '42', userId: '99', sessionId: callId, username: 'Mesmo apelido',
+    transcript: 'Qual é meu jogo favorito?', inputMode: 'text',
+  });
+  assert.deepEqual(replies, [audio]);
 });
-

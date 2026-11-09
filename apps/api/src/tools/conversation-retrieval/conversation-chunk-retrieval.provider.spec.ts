@@ -67,6 +67,7 @@ describe('ConversationChunkRetrievalProvider', () => {
       limit: 5,
       maxContextTokens: 1000,
       filters: {
+        memoryScope: 'global',
         includeConversationId: row.conversation_id,
         dateFrom: new Date('2026-09-20T00:00:00.000Z'),
         currentMessageId: row.end_message_id,
@@ -86,6 +87,8 @@ describe('ConversationChunkRetrievalProvider', () => {
       source: 'conversation_chunk',
     });
     expect(sql.sql).toContain('embedding" IS NOT NULL');
+    expect(sql.sql).toContain('source_conversation."memory_scope" =');
+    expect(sql.values).toContain('global');
     expect(sql.sql).toContain('conversation_id" =');
     expect(sql.sql).toContain('date_range_message');
     expect(sql.values).toContain(30);

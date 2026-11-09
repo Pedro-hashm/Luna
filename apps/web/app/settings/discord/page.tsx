@@ -21,8 +21,7 @@ const statusCopy: Record<DiscordVoiceSettings["status"]["state"], { label: strin
 
 const commands = [
   ["/luna entrar", "Chama a Luna para o canal de voz selecionado."],
-  ["/luna participar", "Autoriza a Luna a detectar a palavra de ativação e ouvir suas perguntas."],
-  ["/luna parar", "Revoga sua participação na sessão."],
+  ["/luna perguntar query:…", "Envia sua pergunta por texto e a Luna responde em voz na call."],
   ["/luna sair", "Encerra a call para a Luna."],
 ] as const;
 
@@ -48,6 +47,7 @@ function describeError(error: unknown) {
 export default function DiscordSettingsPage() {
   const [settings, setSettings] = useState<DiscordVoiceSettings>();
   const [draft, setDraft] = useState<Destination>();
+  const [ownerDraft, setOwnerDraft] = useState<string>();
   const [manual, setManual] = useState(false);
   const [busy, setBusy] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -65,6 +65,7 @@ export default function DiscordSettingsPage() {
         if (controller.signal.aborted) return;
         setSettings(result);
         setDraft((current) => current ?? destination(result));
+        setOwnerDraft((current) => current ?? result.ownerDiscordUserId ?? "");
         setLoadError("");
       } catch (error) {
         if (!controller.signal.aborted) setLoadError(describeError(error));
@@ -106,6 +107,7 @@ export default function DiscordSettingsPage() {
       const result = await updateDiscordVoice(changes);
       setSettings(result);
       if (changes.guildId !== undefined || changes.channelId !== undefined) setDraft(destination(result));
+      if (changes.ownerDiscordUserId !== undefined) setOwnerDraft(result.ownerDiscordUserId ?? "");
       setNotice(success);
     } catch (error) {
       setSaveError(describeError(error));
@@ -136,6 +138,15 @@ export default function DiscordSettingsPage() {
     }
   }
 
+  function saveOwner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (ownerDraft === undefined) return;
+    const ownerDiscordUserId = ownerDraft.trim();
+    if (ownerDiscordUserId && !validId(ownerDiscordUserId)) return;
+    void update("Salvando identidade…", { ownerDiscordUserId: ownerDiscordUserId || null },
+      ownerDiscordUserId ? "Sua identidade do Discord foi vinculada às memórias globais." : "Vínculo removido. A próxima pergunta usará um escopo isolado.");
+  }
+
   return (
     <main className="h-dvh overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
       <div className="mx-auto max-w-5xl">
@@ -146,7 +157,7 @@ export default function DiscordSettingsPage() {
             <Headphones className="shrink-0 text-indigo-600" size={28} /> Luna no Discord
           </h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Escolha onde a Luna pode entrar e conversar por voz. O bot só entra quando você usa <code>/luna entrar</code>.
+            Escolha o canal onde a Luna responde em voz às perguntas enviadas pelo chat do Discord.
           </p>
         </header>
 
@@ -236,6 +247,25 @@ export default function DiscordSettingsPage() {
                   </fieldset>
                 </form>
               </section>
+
+              <section className="glass rounded-3xl p-5 sm:p-6" aria-labelledby="discord-identity">
+                <h2 id="discord-identity" className="text-lg font-semibold text-slate-900">Sua identidade e memórias</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Vincule seu ID do Discord para a Luna usar suas memórias e conversas globais. As outras pessoas ficam em escopos isolados.
+                </p>
+                <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={saveOwner}>
+                  <label className="flex-1 text-sm font-medium text-slate-800" htmlFor="discord-owner-id">
+                    Seu ID de usuário do Discord
+                    <input id="discord-owner-id" className={field} value={ownerDraft ?? ""} inputMode="numeric" autoComplete="off"
+                      onChange={(event) => setOwnerDraft(event.target.value)} placeholder="ID numérico da sua conta" />
+                  </label>
+                  <button type="submit" className={button + " sm:mt-7"} disabled={Boolean(busy || ownerDraft === undefined ||
+                    ((ownerDraft.trim() || null) === settings.ownerDiscordUserId) || (ownerDraft.trim() && !validId(ownerDraft.trim())))}>
+                    Salvar vínculo
+                  </button>
+                </form>
+                <p className="mt-2 text-xs leading-5 text-slate-500">Ative o Modo desenvolvedor no Discord e copie seu ID pelo menu do seu perfil.</p>
+              </section>
             </div>
           )}
 
@@ -250,10 +280,10 @@ export default function DiscordSettingsPage() {
               ))}
             </dl>
             <p className="mt-5 border-t border-indigo-100 pt-4 text-sm leading-6 text-slate-700">
-              Depois de participar, diga <strong>Luna</strong> seguido da pergunta. O bip toca para todo o canal, e o turno fica com a pessoa que chamou.
+              Envie cada pergunta pela sua própria conta. A Luna usa o ID do Discord para separar as conversas e as memórias de cada pessoa, mesmo quando os nomes exibidos são iguais.
             </p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              O piloto usa processamento local e contexto temporário por participante. A resposta falada é ouvida por todos no canal.
+              O bot entra com a escuta desativada. A pergunta e a resposta aparecem na interface e nos fluxos da Luna, e todos no canal ouvem a resposta.
             </p>
           </aside>
         </div>

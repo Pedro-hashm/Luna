@@ -63,14 +63,19 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
       return tx.memoryJob.findMany({
         where: { leaseToken },
         orderBy: [{ availableAt: 'asc' }, { messageId: 'asc' }],
-        include: { message: { select: { id: true, conversationId: true, role: true, content: true, createdAt: true } } },
+        include: { message: {
+          select: {
+            id: true, conversationId: true, role: true, content: true, createdAt: true,
+            conversation: { select: { memoryScope: true } },
+          },
+        } },
       });
     });
     if (!jobs.length) return { examined: 0, saved: 0 };
 
     try {
       const deadline = AbortSignal.timeout(85_000);
-      const processed: Array<{ message: typeof jobs[number]['message']; candidates: unknown[] }> = [];
+      const processed: Array<{ message: typeof jobs[number]['message']; candidates: unknown[]; memoryScope: string }> = [];
       const failed: string[] = [];
       for (const { message } of jobs) {
         try {
@@ -78,7 +83,7 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
             allowsAutomaticMemory(message.content)
             ? await this.candidatesFor(message, deadline)
             : [];
-          processed.push({ message, candidates });
+          processed.push({ message, candidates, memoryScope: message.conversation.memoryScope });
         } catch {
           failed.push(message.id);
         }
@@ -92,12 +97,14 @@ export class MemoryWorker implements OnModuleInit, OnModuleDestroy {
         }
         let saved = 0;
         let proposed = 0;
-        for (const { message, candidates } of processed) {
+        for (const { message, candidates, memoryScope } of processed) {
           if (!await tx.memoryJob.findFirst({ where: { messageId: message.id, leaseToken } })) continue;
           proposed += candidates.length;
           for (const candidate of candidates) {
             const grounded = this.ground(candidate, message.content);
-            if (grounded && await this.memory.saveAutomatic(tx, grounded.draft, message, grounded.quote)) saved++;
+            if (!grounded) continue;
+            const draft = memoryScope === 'global' ? grounded.draft : { ...grounded.draft, scope: memoryScope };
+            if (await this.memory.saveAutomatic(tx, draft, message, grounded.quote, memoryScope)) saved++;
           }
         }
         await tx.memoryJob.updateMany({

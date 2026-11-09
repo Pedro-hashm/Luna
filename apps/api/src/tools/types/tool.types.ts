@@ -26,6 +26,7 @@ export type ToolExecutionContext = {
   currentMessageId?: string;
   currentDateTime?: string;
   requestId?: string;
+  memoryScope?: string;
   messages: ToolContextMessage[];
 };
 

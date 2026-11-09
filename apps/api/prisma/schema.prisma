@@ -126,6 +126,11 @@ model Conversation {
   title            String?
   summary          String?                      @db.Text
   summaryEmbedding Unsupported("vector(1024)")? @map("summary_embedding")
+  source           String                       @default("web")
+  memoryScope      String                       @default("global") @map("memory_scope")
+  sourceKey        String?                      @unique @map("source_key")
+  sourceUserId     String?                      @map("source_user_id")
+  sourceGuildId    String?                      @map("source_guild_id")
   createdAt        DateTime                     @default(now()) @map("created_at")
   updatedAt        DateTime                     @updatedAt @map("updated_at")
   messages         Message[]
@@ -291,10 +296,11 @@ model MemoryJob {
 }
 
 model DiscordVoiceSettings {
-  id        Int     @id @default(1)
-  enabled   Boolean @default(false)
-  guildId   String? @map("guild_id")
-  channelId String? @map("channel_id")
+  id                 Int     @id @default(1)
+  enabled            Boolean @default(false)
+  guildId            String? @map("guild_id")
+  channelId          String? @map("channel_id")
+  ownerDiscordUserId String? @map("owner_discord_user_id")
 
   @@map("discord_voice_settings")
 }
